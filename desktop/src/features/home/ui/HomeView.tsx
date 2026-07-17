@@ -3,6 +3,8 @@ import { RefreshCcw } from "lucide-react";
 
 import { useAppShell } from "@/app/AppShellContext";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useManagedAgentsQuery } from "@/features/agents/hooks";
+import { mergeOwnedAgentPubkeys } from "@/features/agents/knownAgentPubkeys";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { useChannelsQuery, useOpenDmMutation } from "@/features/channels/hooks";
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
@@ -24,6 +26,7 @@ import {
 } from "@/features/home/lib/inboxViewHelpers";
 import { useHomeInboxReadState } from "@/features/home/useHomeInboxReadState";
 import { useInboxThreadContext } from "@/features/home/useInboxThreadContext";
+import { usePersonalActivitySelection } from "@/features/home/usePersonalActivitySelection";
 import {
   type ProfilePanelTab,
   type ProfilePanelView,
@@ -41,6 +44,7 @@ import {
 import { HomeLoadingState } from "@/features/home/ui/HomeLoadingState";
 import { InboxDetailPane } from "@/features/home/ui/InboxDetailPane";
 import { InboxListPane } from "@/features/home/ui/InboxListPane";
+import { PersonalActivityDetailPane } from "@/features/home/ui/PersonalActivityDetailPane";
 import {
   useChannelMessagesQuery,
   useToggleReactionMutation,
@@ -52,7 +56,7 @@ import {
 import { formatTime } from "@/features/messages/lib/dateFormatters";
 import { splitOutgoingTags } from "@/features/messages/lib/imetaMediaMarkdown";
 import { getThreadReference } from "@/features/messages/lib/threading";
-import { useActiveDraftCount } from "@/features/messages/ui/DraftsPanel";
+import { useVisibleActiveDrafts } from "@/features/messages/ui/DraftsPanel";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
@@ -60,6 +64,7 @@ import {
   countDueReminders,
   useRemindersQuery,
 } from "@/features/reminders/hooks";
+import { groupReminders } from "@/features/reminders/lib/reminderFilters";
 import { useRemindLater } from "@/features/reminders/ui/RemindMeLaterProvider";
 import { deleteMessage, sendChannelMessage } from "@/shared/api/tauri";
 import type { HomeFeedResponse } from "@/shared/api/types";
@@ -143,10 +148,24 @@ export function HomeView({
   const isMessagesMode = !isReminders && !isDrafts;
   const remindersQuery = useRemindersQuery(currentPubkey);
   const dueReminderCount = countDueReminders(remindersQuery.data ?? []);
-  // Active draft count for the badge. When the Drafts panel is closed,
-  // rootStatusMap is empty so orphaned drafts are counted optimistically.
-  // They drop from the count once the panel opens and relay confirms deletion.
-  const activeDraftCount = useActiveDraftCount(new Map());
+  // Outside the focused Drafts view, thread-root existence is not queried, so
+  // active drafts are represented optimistically until that view confirms an
+  // orphaned thread and excludes it.
+  const activeDrafts = useVisibleActiveDrafts();
+  const activeDraftCount = activeDrafts.length;
+  const visibleReminders = React.useMemo(
+    () =>
+      groupReminders(remindersQuery.data ?? [], true).flatMap(
+        (group) => group.reminders,
+      ),
+    [remindersQuery.data],
+  );
+  const personalSelection = usePersonalActivitySelection({
+    drafts: activeDrafts,
+    filter,
+    isNarrow: isNarrowHomeViewport,
+    reminders: visibleReminders,
+  });
   // `?item=` is Messages-mode-only machinery: a reminder never enters the
   // FeedItem selection model, so reload while in Reminders mode keeps a stale
   // `?item=` unconsumed and does not snap back to a feed-item detail view.
@@ -333,6 +352,11 @@ export function HomeView({
     enabled: feedProfilePubkeys.length > 0,
   });
   const feedProfiles = feedProfilesQuery.data?.profiles;
+  const managedAgents = useManagedAgentsQuery().data;
+  const ownedAgentPubkeys = React.useMemo(
+    () => mergeOwnedAgentPubkeys(managedAgents, feedProfiles, currentPubkey),
+    [currentPubkey, feedProfiles, managedAgents],
+  );
   // Agent set for the inbox list/detail bot badges: the community-scoped
   // baseline widened with this surface's profile lookup.
   const communityAgentPubkeys = useKnownAgentPubkeys();
@@ -398,7 +422,7 @@ export function HomeView({
   const filteredItems = React.useMemo(() => {
     return inboxItems.filter(
       (item) =>
-        matchesInboxFilter(item, filter) &&
+        matchesInboxFilter(item, filter, ownedAgentPubkeys) &&
         (!unreadOnly ||
           !effectiveDoneSet.has(item.id) ||
           item.conversationId === selectedConversationId),
@@ -407,6 +431,7 @@ export function HomeView({
     effectiveDoneSet,
     filter,
     inboxItems,
+    ownedAgentPubkeys,
     selectedConversationId,
     unreadOnly,
   ]);
@@ -619,19 +644,20 @@ export function HomeView({
         ? availableChannelIds.has(selectedItem.item.channelId)
           ? "This item does not support inline replies yet."
           : "Open the linked channel to reply."
-        : "This inbox item does not have a reply target.";
+        : "This activity item does not have a reply target.";
   const canDelete =
     selectedItem !== null &&
     currentPubkey?.trim().toLowerCase() ===
       selectedItem.item.pubkey.trim().toLowerCase();
+  const hasSelectedDetail = isReminders
+    ? personalSelection.selectedReminder !== null
+    : isDrafts
+      ? personalSelection.selectedDraft !== null
+      : selectedEventId !== null;
   const isSinglePanelDetailView =
-    isMessagesMode &&
-    isNarrowHomeViewport &&
-    selectedEventId !== null &&
-    !isSinglePanelAuxiliaryView;
+    isNarrowHomeViewport && hasSelectedDetail && !isSinglePanelAuxiliaryView;
   const showListPane = !isSinglePanelDetailView && !isSinglePanelAuxiliaryView;
   const showDetailPane =
-    isMessagesMode &&
     !isSinglePanelAuxiliaryView &&
     (!isNarrowHomeViewport || isSinglePanelDetailView);
   const auxiliaryPaneWidthPx = isSinglePanelAuxiliaryView
@@ -682,6 +708,7 @@ export function HomeView({
           {showListPane ? (
             <InboxListPane
               activeReminderEventIds={activeReminderEventIds}
+              activeDrafts={activeDrafts}
               agentPubkeys={inboxAgentPubkeys}
               activeDraftCount={activeDraftCount}
               doneSet={effectiveDoneSet}
@@ -718,8 +745,13 @@ export function HomeView({
                 handleUserSelectItem(itemId);
                 markItemRead(itemId);
               }}
+              onSelectDraft={personalSelection.onSelectDraft}
+              onSelectReminder={personalSelection.onSelectReminder}
               onUnreadOnlyChange={setUnreadOnly}
               reminderPubkey={currentPubkey}
+              reminders={visibleReminders}
+              selectedDraftKey={personalSelection.selectedDraft?.key}
+              selectedReminderId={personalSelection.selectedReminder?.id}
               selectedConversationId={selectedConversationId}
               showRightDivider={showListPane && showDetailPane}
               unreadOnly={unreadOnly}
@@ -727,7 +759,7 @@ export function HomeView({
           ) : null}
 
           <button
-            aria-label="Resize inbox list"
+            aria-label="Resize activity list"
             className={cn(
               "group absolute bottom-0 z-40 w-3 -translate-x-1/2 cursor-col-resize",
               topChromeInset.top,
@@ -749,7 +781,17 @@ export function HomeView({
             <span className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-border/80 group-focus-visible:bg-border/80" />
           </button>
 
-          {showDetailPane ? (
+          {showDetailPane && !isMessagesMode ? (
+            <PersonalActivityDetailPane
+              currentPubkey={currentPubkey}
+              filter={filter}
+              isSinglePanelView={isSinglePanelDetailView}
+              onClearDraft={() => personalSelection.onSelectDraft(null)}
+              onClearReminder={() => personalSelection.onSelectReminder(null)}
+              selectedDraft={personalSelection.selectedDraft}
+              selectedReminder={personalSelection.selectedReminder}
+            />
+          ) : showDetailPane ? (
             <InboxDetailPane
               agentPubkeys={inboxAgentPubkeys}
               canDelete={canDelete}
@@ -766,6 +808,7 @@ export function HomeView({
               isSendingReply={isSendingReply}
               isSinglePanelView={isSinglePanelDetailView}
               isThreadContextLoading={threadContext.isLoading}
+              hasActivityItems={filteredItems.length > 0}
               item={selectedItem}
               latchedDefaultParentId={latchedDefaultParentId}
               messages={contextMessages}

@@ -72,6 +72,20 @@ type MockWindow = Window & {
   __BUZZ_E2E_GET_EVENT_CALL_COUNT__?: number;
 };
 
+async function waitForMockLiveSubscription(
+  page: import("@playwright/test").Page,
+  channelName: string,
+) {
+  await page.waitForFunction(
+    (name) =>
+      window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+        channelName: name,
+        kind: 9,
+      }) === true,
+    channelName,
+  );
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 async function waitForBridgeReady(page: import("@playwright/test").Page) {
@@ -1532,5 +1546,44 @@ test.describe("inbox stable-conversation regressions", () => {
     // ── Assert: scrollIntoView spy count is still 1 ───────────────────
     // Drift compensation uses scrollBy — must NOT call scrollIntoView again.
     expect(await getScrollIntoViewCount(page)).toBe(1);
+  });
+});
+
+test.describe("owned agent DM activity", () => {
+  test("top-level DM response appears in Agents without a mention tag", async ({
+    page,
+  }) => {
+    await installMockBridge(page, {
+      managedAgents: [
+        {
+          pubkey: TEST_IDENTITIES.alice.pubkey,
+          name: "Alice Agent",
+          status: "running",
+          channelNames: ["alice-tyler"],
+        },
+      ],
+    });
+    await page.goto("/");
+    await expect(page.getByTestId("home-inbox")).toBeVisible();
+    await waitForMockLiveSubscription(page, "alice-tyler");
+
+    await page.evaluate((agentPubkey) => {
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "alice-tyler",
+        content: "Owned agent DM response without a mention.",
+        pubkey: agentPubkey,
+        mentionPubkeys: [],
+        id: "da".repeat(32),
+      });
+    }, TEST_IDENTITIES.alice.pubkey);
+
+    await page.getByTestId("inbox-filter-trigger").click();
+    await page
+      .getByRole("menuitemradio", { name: "Agents", exact: true })
+      .click();
+
+    await expect(
+      page.getByText("Owned agent DM response without a mention."),
+    ).toBeVisible();
   });
 });

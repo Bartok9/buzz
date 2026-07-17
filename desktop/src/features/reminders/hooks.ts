@@ -16,7 +16,7 @@ import type {
 export const remindersQueryKey = (pubkey: string) =>
   ["reminders", pubkey] as const;
 
-/** Re-exported so the inbox badge has one import for the due count. */
+/** Re-exported so the Activity badge has one import for the due count. */
 export const countDueReminders = countDue;
 
 /**
@@ -34,13 +34,13 @@ export function useRemindersQuery(pubkey: string | undefined) {
 }
 
 /**
- * The due-reminder contribution to the in-app Inbox nav badge. Reminders are a
+ * The due-reminder contribution to the in-app Activity nav badge. Reminders are a
  * separate stream from the feed badge machinery, so the count is summed in at
  * the AppShell wiring point rather than threaded through homeBadge.ts. Reads
  * the shared query above, so the useReminderNotifications poll's invalidate
  * keeps it live and countDue re-evaluates as reminders cross due. The caller
- * adds this raw (no isHomeActive suppression), mirroring the inbox filter
- * badge, which persists while the Inbox is open.
+ * adds this raw (no isHomeActive suppression), mirroring the Activity filter
+ * badge, which persists while Activity is open.
  *
  * `enabled` mirrors the homeBadgeEnabled contract: when the home badge toggle is
  * off, the feed contribution returns 0, so the reminder add must too — otherwise

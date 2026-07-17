@@ -18,6 +18,7 @@ import {
 } from "./useUnreadChannels.ts";
 import {
   isChannelUnreadTriggerKind,
+  isHomeActivityEvent,
   withChannelTagFallback,
 } from "./useLiveChannelUpdates.ts";
 import {
@@ -116,6 +117,12 @@ test("dmCatchUpFetch_includesOnlyHuddleStartInvite", () => {
   assert.equal(dmKinds.includes(KIND_HUDDLE_STARTED), true);
   assert.equal(dmKinds.includes(KIND_HUDDLE_ENDED), false);
   assert.equal(streamKinds.includes(KIND_HUDDLE_STARTED), false);
+});
+
+test("homeActivity_includesDmMessagesAndConventionalThreadReplies", () => {
+  assert.equal(isHomeActivityEvent(true, false), true);
+  assert.equal(isHomeActivityEvent(false, true), true);
+  assert.equal(isHomeActivityEvent(false, false), false);
 });
 
 // An explicit caller timeline position must still advance the read marker. This

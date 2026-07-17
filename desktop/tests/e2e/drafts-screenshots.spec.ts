@@ -161,8 +161,7 @@ test.describe("drafts screenshots", () => {
       timeout: 5_000,
     });
 
-    // Section heading should be "DRAFTS"
-    await expect(panel.getByText("Drafts", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("home-draft-detail")).toBeVisible();
 
     // Small settle before screenshot
     await page.waitForTimeout(200);
@@ -316,13 +315,11 @@ test.describe("drafts screenshots", () => {
     );
   });
 
-  test("06 — active-draft badge on inbox trigger and filter option", async ({
+  test("06 — active drafts appear in All and count beside Drafts", async ({
     page,
   }) => {
-    // Captures both badge placements for the PR screenshot:
-    //   1. The numeric badge on the inbox filter trigger button.
-    //   2. The badge next to "Drafts" in the filter dropdown.
-    // Two active drafts are seeded so the count is 2.
+    // Channel drafts are not attached to feed conversations, so All preserves
+    // both as individual rows while the filter menu carries the total count.
     await installMockBridge(page);
     await patchCommunityPubkey(page);
     await seedDraftStore(page, ACTIVE_DRAFTS);
@@ -332,10 +329,17 @@ test.describe("drafts screenshots", () => {
       timeout: 10_000,
     });
 
-    // Badge should be visible on the filter trigger with count = 2.
-    const triggerBadge = page.getByTestId("inbox-draft-badge");
-    await expect(triggerBadge).toBeVisible({ timeout: 6_000 });
-    await expect(triggerBadge).toHaveText("2");
+    await expect(page.getByTestId("inbox-draft-badge")).toHaveCount(0);
+    await expect(page.locator("[data-testid^='home-all-drafts-']")).toHaveCount(
+      2,
+    );
+    const generalDraft = page.getByTestId(
+      `home-all-drafts-channel:${GENERAL_CHANNEL_ID}`,
+    );
+    await expect(generalDraft.getByText("In", { exact: true })).toBeVisible();
+    await expect(
+      generalDraft.getByText("#general", { exact: true }),
+    ).toBeVisible();
 
     // Open the filter dropdown so the badge-option is visible too.
     await page.getByTestId("inbox-filter-trigger").click();

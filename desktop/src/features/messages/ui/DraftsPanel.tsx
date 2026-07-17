@@ -1,4 +1,4 @@
-import { FileText, Lock, Pencil, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, Lock, Pencil, Send, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -6,6 +6,7 @@ import { useChannelsQuery } from "@/features/channels/hooks";
 import {
   clearDraftEntry,
   getActiveDraftEntries,
+  getDraftThreadRootId,
   renameDraftEntry,
   useDraftsSnapshot,
   type DraftState,
@@ -28,6 +29,7 @@ import { resolveChannelDisplayLabel } from "@/features/sidebar/lib/channelLabels
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { getEventById } from "@/shared/api/tauri";
 import type { Channel } from "@/shared/api/types";
+import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
 import { cn } from "@/shared/lib/cn";
 import {
   AlertDialog,
@@ -41,11 +43,9 @@ import { Button } from "@/shared/ui/button";
 import { Markdown } from "@/shared/ui/markdown";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
-const SENT_DRAFT_PREFIX = "sent:";
-const THREAD_DRAFT_PREFIX = "thread:";
 const UNKNOWN_CHANNEL_LABEL = "Unknown channel";
 
-type DraftListEntry = {
+export type DraftListEntry = {
   draft: DraftState;
   key: string;
 };
@@ -56,7 +56,7 @@ type DraftSection = {
   status: DraftState["status"];
 };
 
-type DraftSource = {
+export type DraftSource = {
   channel: Channel | null;
   label: string;
 };
@@ -85,35 +85,13 @@ function formatDraftCreatedAt(draft: DraftState): string {
     : draftTimeFormatter.format(new Date(time));
 }
 
-function getOriginalDraftKey(draftKey: string): string {
-  if (!draftKey.startsWith(SENT_DRAFT_PREFIX)) {
-    return draftKey;
-  }
-
-  const sentPayload = draftKey.slice(SENT_DRAFT_PREFIX.length);
-  const timestampSeparatorIndex = sentPayload.lastIndexOf(":");
-  return timestampSeparatorIndex > 0
-    ? sentPayload.slice(0, timestampSeparatorIndex)
-    : sentPayload;
-}
-
-function getThreadRootId(draftKey: string): string | null {
-  const originalDraftKey = getOriginalDraftKey(draftKey);
-  if (!originalDraftKey.startsWith(THREAD_DRAFT_PREFIX)) {
-    return null;
-  }
-
-  const id = originalDraftKey.slice(THREAD_DRAFT_PREFIX.length).trim();
-  return id.length > 0 ? id : null;
-}
-
-function isVisibleDraft(entry: DraftListEntry): boolean {
+export function isVisibleDraft(entry: DraftListEntry): boolean {
   const content = entry.draft.content.trim();
   const attachmentCount = entry.draft.pendingImeta.length;
   return content.length > 0 || attachmentCount > 0;
 }
 
-function getDraftPreview(draft: DraftState): string {
+export function getDraftPreview(draft: DraftState): string {
   const content = draft.content.trim();
   if (content.length > 0) {
     return content;
@@ -140,6 +118,14 @@ function readDraftSections(): DraftSection[] {
   return sections;
 }
 
+export function useVisibleActiveDrafts(): DraftListEntry[] {
+  const version = useDraftsSnapshot();
+  return React.useMemo(() => {
+    void version;
+    return getActiveDraftEntries().filter(isVisibleDraft);
+  }, [version]);
+}
+
 function resolveDraftSources({
   channels,
   currentPubkey,
@@ -148,7 +134,7 @@ function resolveDraftSources({
 }: {
   channels: Channel[] | undefined;
   currentPubkey: string | undefined;
-  drafts: DraftListEntry[];
+  drafts: readonly DraftListEntry[];
   profiles: UserProfileLookup | undefined;
 }): Map<string, DraftSource> {
   const channelsById = new Map(
@@ -167,6 +153,31 @@ function resolveDraftSources({
   }
 
   return sources;
+}
+
+export function useDraftSources(drafts: readonly DraftListEntry[]) {
+  const currentPubkey = useIdentityQuery().data?.pubkey;
+  const channels = useChannelsQuery().data;
+  const profilePubkeys = React.useMemo(
+    () => [
+      ...new Set(
+        (channels ?? [])
+          .filter((channel) =>
+            drafts.some((entry) => entry.draft.channelId === channel.id),
+          )
+          .flatMap((channel) => channel.participantPubkeys),
+      ),
+    ],
+    [channels, drafts],
+  );
+  const profiles = useUsersBatchQuery(profilePubkeys, {
+    enabled: profilePubkeys.length > 0,
+  }).data?.profiles;
+
+  return React.useMemo(
+    () => resolveDraftSources({ channels, currentPubkey, drafts, profiles }),
+    [channels, currentPubkey, drafts, profiles],
+  );
 }
 
 function DraftRowActionButton({
@@ -287,16 +298,22 @@ function SendConfirmDialog({
 
 function DraftRow({
   entry,
+  isSelected = false,
   onDelete,
   onOpen,
+  onSelect,
   onSend,
+  presentation = "card",
   rootStatus,
   source,
 }: {
   entry: DraftListEntry;
+  isSelected?: boolean;
   onDelete: (draftKey: string) => void;
   onOpen: (entry: DraftListEntry) => void;
+  onSelect?: (entry: DraftListEntry) => void;
   onSend: (entry: DraftListEntry) => void;
+  presentation?: "activity-list" | "card";
   rootStatus: RootStatus;
   source: DraftSource;
 }) {
@@ -311,52 +328,70 @@ function DraftRow({
       ? source.label
       : `#${source.label}`
     : UNKNOWN_CHANNEL_LABEL;
+  const isActivityList = presentation === "activity-list";
 
   return (
     <div
       className={cn(
-        "group/draft-row relative rounded-md border border-border/70 bg-background transition-colors hover:bg-muted/40 focus-within:bg-muted/40",
+        "group/draft-row relative bg-background transition-colors hover:bg-muted/40 focus-within:bg-muted/40",
+        isActivityList
+          ? "border-b border-border/45"
+          : "rounded-md border border-border/70",
+        isActivityList && isSelected && "bg-muted/40",
         isOrphaned && "opacity-50",
       )}
       data-testid={`home-draft-item-${entry.key}`}
     >
       <button
         aria-label={`Open draft in ${channelLabel}`}
-        className="block w-full min-w-0 px-3 py-3 text-left disabled:cursor-default"
-        disabled={!canOpen}
-        onClick={() => onOpen(entry)}
+        className={cn(
+          "block w-full min-w-0 text-left disabled:cursor-default",
+          isActivityList ? "px-4 py-4" : "px-3 py-3",
+        )}
+        disabled={!isActivityList && !canOpen}
+        onClick={() => {
+          if (isActivityList) onSelect?.(entry);
+          else onOpen(entry);
+        }}
         type="button"
       >
-        <div className="min-w-0 pr-0 transition-[padding] group-hover/draft-row:pr-20 group-focus-within/draft-row:pr-20">
-          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {isPrivate ? <Lock className="h-3.5 w-3.5 shrink-0" /> : null}
-            <span
-              className={cn(
-                "truncate font-medium",
-                source.channel ? "text-foreground" : "text-muted-foreground",
-                isOrphaned && "text-muted-foreground",
-              )}
-            >
-              {channelLabel}
+        <div className="flex min-w-0 items-start gap-3">
+          {isActivityList ? (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <FileText className="h-4 w-4" />
             </span>
-            <span className="shrink-0 text-muted-foreground/70">
-              {formatDraftCreatedAt(entry.draft)}
-            </span>
-            {isOrphaned ? (
+          ) : null}
+          <div className="min-w-0 flex-1 pr-0 transition-[padding] group-hover/draft-row:pr-20 group-focus-within/draft-row:pr-20">
+            <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              {isPrivate ? <Lock className="h-3.5 w-3.5 shrink-0" /> : null}
               <span
-                className="shrink-0 rounded px-1 py-0.5 text-2xs font-medium text-destructive/70 ring-1 ring-destructive/30"
-                data-testid={`home-draft-orphaned-label-${entry.key}`}
+                className={cn(
+                  "truncate font-medium",
+                  source.channel ? "text-foreground" : "text-muted-foreground",
+                  isOrphaned && "text-muted-foreground",
+                )}
               >
-                thread deleted
+                {channelLabel}
               </span>
-            ) : null}
-          </div>
-          <div className="mt-1 max-h-10 overflow-hidden text-sm font-medium leading-5 text-foreground">
-            <Markdown
-              className="inbox-preview-markdown text-inherit leading-5"
-              content={getDraftPreview(entry.draft)}
-              interactive={false}
-            />
+              <span className="shrink-0 text-muted-foreground/70">
+                {formatDraftCreatedAt(entry.draft)}
+              </span>
+              {isOrphaned ? (
+                <span
+                  className="shrink-0 rounded px-1 py-0.5 text-2xs font-medium text-destructive/70 ring-1 ring-destructive/30"
+                  data-testid={`home-draft-orphaned-label-${entry.key}`}
+                >
+                  thread deleted
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 max-h-10 overflow-hidden text-sm font-medium leading-5 text-foreground">
+              <Markdown
+                className="inbox-preview-markdown text-inherit leading-5"
+                content={getDraftPreview(entry.draft)}
+                interactive={false}
+              />
+            </div>
           </div>
         </div>
       </button>
@@ -426,7 +461,7 @@ export function deriveActiveDraftCount(
   rootStatusMap: Map<string, RootStatus>,
 ): number {
   return activeDrafts.filter((entry) => {
-    const threadRootId = getThreadRootId(entry.key);
+    const threadRootId = getDraftThreadRootId(entry.key);
     if (threadRootId === null) {
       // Channel-root draft — cannot be orphaned.
       return true;
@@ -453,18 +488,22 @@ export function useActiveDraftCount(
   rootStatusMap: Map<string, RootStatus>,
 ): number {
   // Re-render on every draft write via useDraftsSnapshot.
-  useDraftsSnapshot();
-  const activeDrafts = getActiveDraftEntries().filter(isVisibleDraft);
+  const activeDrafts = useVisibleActiveDrafts();
   return deriveActiveDraftCount(activeDrafts, rootStatusMap);
 }
 
 // ── DraftsPanel ──────────────────────────────────────────────────────────────
 
-export function DraftsPanel() {
+export function DraftsPanel({
+  onSelectDraft,
+  presentation = "card",
+  selectedDraftKey,
+}: {
+  onSelectDraft?: (draftKey: string) => void;
+  presentation?: "activity-list" | "card";
+  selectedDraftKey?: string | null;
+} = {}) {
   const { goChannel } = useAppNavigation();
-  const identityQuery = useIdentityQuery();
-  const currentPubkey = identityQuery.data?.pubkey;
-  const channelsQuery = useChannelsQuery();
 
   // Collapse the old `sections` state + `refreshDrafts` pattern onto a
   // reactive snapshot: every draft write re-renders via useSyncExternalStore.
@@ -483,7 +522,7 @@ export function DraftsPanel() {
     for (const entry of sections.flatMap((s) =>
       s.status === "active" ? s.entries : [],
     )) {
-      const rootId = getThreadRootId(entry.key);
+      const rootId = getDraftThreadRootId(entry.key);
       if (rootId) {
         ids.add(rootId);
       }
@@ -494,33 +533,7 @@ export function DraftsPanel() {
   // Panel is always mounted when visible; `isOpen=true` enables root queries.
   const rootStatusMap = useDraftRootStatus(threadRootIds, true);
 
-  const profilePubkeys = React.useMemo(
-    () => [
-      ...new Set(
-        (channelsQuery.data ?? [])
-          .filter((channel) =>
-            drafts.some((entry) => entry.draft.channelId === channel.id),
-          )
-          .flatMap((channel) => channel.participantPubkeys),
-      ),
-    ],
-    [channelsQuery.data, drafts],
-  );
-  const usersBatchQuery = useUsersBatchQuery(profilePubkeys, {
-    enabled: profilePubkeys.length > 0,
-  });
-  const profiles = usersBatchQuery.data?.profiles;
-
-  const sources = React.useMemo(
-    () =>
-      resolveDraftSources({
-        channels: channelsQuery.data,
-        currentPubkey,
-        drafts,
-        profiles,
-      }),
-    [channelsQuery.data, currentPubkey, drafts, profiles],
-  );
+  const sources = useDraftSources(drafts);
 
   // Send confirmation dialog state.
   const [sendTarget, setSendTarget] = React.useState<DraftListEntry | null>(
@@ -561,7 +574,7 @@ export function DraftsPanel() {
         return;
       }
 
-      const threadRootId = getThreadRootId(entry.key);
+      const threadRootId = getDraftThreadRootId(entry.key);
       void goChannel(
         entry.draft.channelId,
         threadRootId ? { messageId: threadRootId, threadRootId } : undefined,
@@ -610,7 +623,7 @@ export function DraftsPanel() {
       return;
     }
 
-    const threadRootId = getThreadRootId(entry.key);
+    const threadRootId = getDraftThreadRootId(entry.key);
     void goChannel(entry.draft.channelId, {
       ...(threadRootId ? { messageId: threadRootId, threadRootId } : {}),
       autoSend: entry.key,
@@ -636,14 +649,24 @@ export function DraftsPanel() {
 
   return (
     <>
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div
+        className={cn(
+          "flex-1 overflow-y-auto",
+          presentation === "card" && "space-y-4 p-4",
+        )}
+      >
         {sections.map((section) => (
-          <div className="space-y-2" key={section.status}>
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {section.label}
-            </h3>
+          <div
+            className={cn(presentation === "card" && "space-y-2")}
+            key={section.status}
+          >
+            {presentation === "card" ? (
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {section.label}
+              </h3>
+            ) : null}
             {section.entries.map((entry) => {
-              const threadRootId = getThreadRootId(entry.key);
+              const threadRootId = getDraftThreadRootId(entry.key);
               const rootStatus: RootStatus =
                 threadRootId !== null
                   ? (rootStatusMap.get(threadRootId) ?? "checking")
@@ -651,10 +674,13 @@ export function DraftsPanel() {
               return (
                 <DraftRow
                   entry={entry}
+                  isSelected={entry.key === selectedDraftKey}
                   key={entry.key}
                   onDelete={handleDelete}
                   onOpen={handleOpen}
+                  onSelect={(selected) => onSelectDraft?.(selected.key)}
                   onSend={handleSendRequest}
+                  presentation={presentation}
                   rootStatus={rootStatus}
                   source={sources.get(entry.key) ?? UNKNOWN_DRAFT_SOURCE}
                 />
@@ -670,6 +696,201 @@ export function DraftsPanel() {
           isDm={sendDialogIsDm}
           onCancel={handleSendCancel}
           onConfirm={handleSendConfirm}
+          open={true}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function DraftDetailPane({
+  entry,
+  onBack,
+}: {
+  entry: DraftListEntry | null;
+  onBack?: () => void;
+}) {
+  const { goChannel } = useAppNavigation();
+  const identityQuery = useIdentityQuery();
+  const currentPubkey = identityQuery.data?.pubkey;
+  const channelsQuery = useChannelsQuery();
+  const channels = channelsQuery.data;
+  const selectedChannel = entry
+    ? (channels?.find((channel) => channel.id === entry.draft.channelId) ??
+      null)
+    : null;
+  const profilePubkeys = selectedChannel?.participantPubkeys ?? [];
+  const usersBatchQuery = useUsersBatchQuery(profilePubkeys, {
+    enabled: profilePubkeys.length > 0,
+  });
+  const profiles = usersBatchQuery.data?.profiles;
+  const source = entry
+    ? (resolveDraftSources({
+        channels,
+        currentPubkey,
+        drafts: [entry],
+        profiles,
+      }).get(entry.key) ?? UNKNOWN_DRAFT_SOURCE)
+    : UNKNOWN_DRAFT_SOURCE;
+  const threadRootId = entry ? getDraftThreadRootId(entry.key) : null;
+  const rootStatusMap = useDraftRootStatus(
+    threadRootId ? [threadRootId] : [],
+    entry !== null,
+  );
+  const rootStatus: RootStatus = threadRootId
+    ? (rootStatusMap.get(threadRootId) ?? "checking")
+    : "available";
+  const [sendTarget, setSendTarget] = React.useState<DraftListEntry | null>(
+    null,
+  );
+
+  if (!entry) {
+    return (
+      <section className="flex min-h-0 min-w-0 flex-col bg-background">
+        <TopChromeInsetHeader flush>
+          <div className="flex min-h-9 items-center px-4 py-2">
+            <span className="text-sm font-semibold">Draft</span>
+          </div>
+        </TopChromeInsetHeader>
+        <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+          Select a draft
+        </div>
+      </section>
+    );
+  }
+
+  const canOpen = canOpenDraft(entry.draft, source) && rootStatus !== "deleted";
+  const canSend = canSendDraft(entry.draft, source, rootStatus);
+  const isDm = source.channel?.channelType === "dm";
+  const channelLabel = source.channel
+    ? isDm
+      ? source.label
+      : `#${source.label}`
+    : UNKNOWN_CHANNEL_LABEL;
+
+  const openDraft = async (autoSend = false) => {
+    if (!canOpen) return;
+    if (entry.key.startsWith(INBOX_REPLY_PREFIX)) {
+      const migrated = await migrateInboxReplyDraft(entry.key, entry.draft, {
+        getEventById,
+        getChannelIdFromTags,
+        getThreadReference,
+        renameDraftEntry,
+      });
+      if (!migrated) return;
+      void goChannel(migrated.channelId, {
+        messageId: migrated.conversationId,
+        threadRootId: migrated.conversationId,
+        ...(autoSend ? { autoSend: migrated.newDraftKey } : {}),
+      });
+      return;
+    }
+    void goChannel(entry.draft.channelId, {
+      ...(threadRootId ? { messageId: threadRootId, threadRootId } : {}),
+      ...(autoSend ? { autoSend: entry.key } : {}),
+    });
+  };
+
+  return (
+    <>
+      <section
+        className="flex min-h-0 min-w-0 flex-col bg-background"
+        data-testid="home-draft-detail"
+      >
+        <TopChromeInsetHeader flush>
+          <div className="flex min-h-9 items-center gap-2 px-4 py-2">
+            {onBack ? (
+              <Button
+                aria-label="Back to drafts"
+                className="h-8 w-8 p-0"
+                onClick={onBack}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            ) : null}
+            <span className="text-sm font-semibold">Draft</span>
+          </div>
+        </TopChromeInsetHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
+          <div className="mx-auto max-w-2xl">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {source.channel?.visibility === "private" ? (
+                <Lock className="h-4 w-4" />
+              ) : null}
+              <span className="font-medium text-foreground">
+                {channelLabel}
+              </span>
+              <span>{formatDraftCreatedAt(entry.draft)}</span>
+            </div>
+
+            <div className="mt-5 text-base leading-6 text-foreground">
+              <Markdown
+                className="text-inherit"
+                content={getDraftPreview(entry.draft)}
+                interactive={false}
+              />
+            </div>
+            {entry.draft.pendingImeta.length > 0 ? (
+              <p className="mt-5 text-sm text-muted-foreground">
+                {entry.draft.pendingImeta.length}{" "}
+                {entry.draft.pendingImeta.length === 1
+                  ? "attachment"
+                  : "attachments"}
+              </p>
+            ) : null}
+            {rootStatus === "deleted" ? (
+              <p className="mt-5 text-sm font-medium text-destructive">
+                This draft's thread was deleted.
+              </p>
+            ) : null}
+
+            <div className="mt-8 flex flex-wrap items-center gap-2">
+              <Button
+                disabled={!canOpen}
+                onClick={() => void openDraft()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <Pencil className="h-4 w-4" />
+                Continue editing
+              </Button>
+              <Button
+                disabled={!canSend}
+                onClick={() => setSendTarget(entry)}
+                size="sm"
+                type="button"
+              >
+                <Send className="h-4 w-4" />
+                Send
+              </Button>
+              <Button
+                onClick={() => clearDraftEntry(entry.key)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {sendTarget ? (
+        <SendConfirmDialog
+          channelLabel={source.label}
+          isDm={isDm}
+          onCancel={() => setSendTarget(null)}
+          onConfirm={() => {
+            setSendTarget(null);
+            void openDraft(true);
+          }}
           open={true}
         />
       ) : null}

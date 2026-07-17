@@ -14,6 +14,7 @@ import type {
   RelayEvent,
   UserProfileSummary,
 } from "@/shared/api/types";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 
 function hasThreadReplyTags(tags: string[][]) {
@@ -28,6 +29,7 @@ export function matchesInboxFilter(
     item?: FeedItem;
   },
   filter: InboxFilter,
+  ownedAgentPubkeys: ReadonlySet<string> = new Set(),
 ) {
   if (filter === "all") {
     return true;
@@ -37,6 +39,12 @@ export function matchesInboxFilter(
     return [item.item, ...(item.groupItems ?? [])].some((groupItem) =>
       groupItem ? hasThreadReplyTags(groupItem.tags) : false,
     );
+  }
+
+  if (filter === "agents") {
+    return item.item
+      ? ownedAgentPubkeys.has(normalizePubkey(item.item.pubkey))
+      : false;
   }
 
   return item.categories.includes(filter);

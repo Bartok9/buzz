@@ -308,7 +308,7 @@ test("live mentions refetch the home feed without waiting for polling", async ({
     // inbox-list content, not the badge.
     await targetPage
       .getByTestId("app-sidebar")
-      .getByRole("button", { name: "Inbox" })
+      .getByRole("button", { name: "Activity" })
       .click();
     await expect(targetPage.getByTestId("home-inbox-list")).toBeVisible();
     await expect(targetPage.getByTestId("home-inbox-list")).toContainText(
@@ -364,7 +364,7 @@ test("live forum mentions refetch the home feed without waiting for polling", as
 
     await targetPage
       .getByTestId("app-sidebar")
-      .getByRole("button", { name: "Inbox" })
+      .getByRole("button", { name: "Activity" })
       .click();
     await expect(targetPage.getByTestId("home-inbox-list")).toBeVisible();
     await expect(targetPage.getByTestId("home-inbox-list")).toBeVisible();

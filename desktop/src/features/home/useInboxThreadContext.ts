@@ -209,7 +209,7 @@ export function useInboxThreadContext(
       );
     } catch (error) {
       console.error(
-        "Failed to hydrate reactions for Inbox context messages",
+        "Failed to hydrate reactions for Activity context messages",
         selectedChannelId,
         error,
       );

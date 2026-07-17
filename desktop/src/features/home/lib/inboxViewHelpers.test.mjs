@@ -108,6 +108,64 @@ test("matchesInboxFilter matches thread rows by thread tags", () => {
   );
 });
 
+test("matchesInboxFilter matches only latest responses from owned agents", () => {
+  const ownedAgent = "A".repeat(64);
+  const otherAgent = "B".repeat(64);
+  const ownedAgentPubkeys = new Set([ownedAgent.toLowerCase()]);
+  const agentResponse = {
+    id: "agent-response",
+    kind: 43004,
+    pubkey: ownedAgent,
+    content: "Job complete",
+    createdAt: 2,
+    channelId: "channel",
+    channelName: "agents",
+    tags: [["h", "channel"]],
+    category: "agent_activity",
+  };
+  const humanFollowup = {
+    ...agentResponse,
+    id: "human-followup",
+    kind: 9,
+    pubkey: "human",
+    content: "Thanks",
+    createdAt: 3,
+    category: "activity",
+  };
+
+  assert.equal(
+    matchesInboxFilter(
+      { categories: ["agent_activity"], item: agentResponse },
+      "agents",
+      ownedAgentPubkeys,
+    ),
+    true,
+  );
+  assert.equal(
+    matchesInboxFilter(
+      {
+        categories: ["agent_activity", "activity"],
+        groupItems: [agentResponse, humanFollowup],
+        item: humanFollowup,
+      },
+      "agents",
+      ownedAgentPubkeys,
+    ),
+    false,
+  );
+  assert.equal(
+    matchesInboxFilter(
+      {
+        categories: ["agent_activity"],
+        item: { ...agentResponse, pubkey: otherAgent },
+      },
+      "agents",
+      ownedAgentPubkeys,
+    ),
+    false,
+  );
+});
+
 // --- getReactionTargetId ---
 
 test("getReactionTargetId returns the last e-tag target id", () => {

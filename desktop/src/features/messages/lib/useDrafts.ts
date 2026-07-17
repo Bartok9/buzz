@@ -76,6 +76,28 @@ export type DraftState = {
   status: "active" | "sent";
 };
 
+const SENT_DRAFT_PREFIX = "sent:";
+const THREAD_DRAFT_PREFIX = "thread:";
+
+export function getDraftThreadRootId(draftKey: string): string | null {
+  let originalDraftKey = draftKey;
+  if (draftKey.startsWith(SENT_DRAFT_PREFIX)) {
+    const sentPayload = draftKey.slice(SENT_DRAFT_PREFIX.length);
+    const timestampSeparatorIndex = sentPayload.lastIndexOf(":");
+    originalDraftKey =
+      timestampSeparatorIndex > 0
+        ? sentPayload.slice(0, timestampSeparatorIndex)
+        : sentPayload;
+  }
+
+  if (!originalDraftKey.startsWith(THREAD_DRAFT_PREFIX)) {
+    return null;
+  }
+
+  const id = originalDraftKey.slice(THREAD_DRAFT_PREFIX.length).trim();
+  return id.length > 0 ? id : null;
+}
+
 /** Serialised shape stored in localStorage (same as DraftState for round-trips). */
 type StoredDrafts = Record<string, DraftState>;
 
@@ -378,7 +400,8 @@ export function renameDraftEntry(
 
 /**
  * Convenience: save if content or attachments are non-empty, otherwise clear.
- * Preserves existing createdAt on updates; sets it on first save.
+ * Preserves existing timestamps when the persisted payload is unchanged, so a
+ * composer cleanup does not make an untouched draft look newly edited.
  */
 export function persistDraftEntry(
   draftKey: string,
@@ -392,6 +415,19 @@ export function persistDraftEntry(
   if (hasContent) {
     const map = readStore();
     const existing = map.get(draftKey);
+    if (
+      existing &&
+      draftStatesEqual(existing, {
+        ...existing,
+        content,
+        channelId,
+        pendingImeta,
+        mentionRefs,
+        spoileredAttachmentUrls,
+      })
+    ) {
+      return;
+    }
     const now = new Date().toISOString();
     saveDraftEntry(draftKey, {
       content,

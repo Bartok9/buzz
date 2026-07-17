@@ -499,7 +499,7 @@
  * Per-row-type text colors (Buzz theme).
  *
  * By default the whole sidebar inherits a single `--sidebar-foreground`, so
- * channels, direct messages, and the Inbox/Agents nav rows all share one text
+ * channels, direct messages, and the Activity/Agents nav rows all share one text
  * color. These variables let each row type carry its own foreground while
  * keeping the default value unchanged.
  *
@@ -540,7 +540,7 @@
 }
 
 /*
- * Inbox + Agents nav rows: the primary app nav buttons (Inbox, Pulse,
+ * Activity + Agents nav rows: the primary app nav buttons (Activity, Pulse,
  * Projects, Agents, Workflows). Excludes the active row so the active-pill
  * foreground still wins.
  */

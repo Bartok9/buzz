@@ -52,6 +52,7 @@ import {
   clearDraftEntry,
   getStoreSnapshot,
   initDraftStore,
+  loadDraftEntry,
   markDraftSentEntry,
   persistDraftEntry,
   saveDraftEntry,
@@ -164,6 +165,26 @@ test("persistDraftEntry_non_empty_notifies_subscriber", () => {
     versionBefore + 1,
     "version must increment on persist",
   );
+});
+
+test("persistDraftEntry_unchanged_cleanup_preserves_updatedAt", () => {
+  setup();
+  const originalUpdatedAt = "2026-01-01T00:00:00.000Z";
+  saveDraftEntry(
+    "chan-unchanged",
+    makeDraft({
+      createdAt: originalUpdatedAt,
+      updatedAt: originalUpdatedAt,
+    }),
+  );
+
+  const { callCount, versionBefore, versionAfter } = observeWrite(() => {
+    persistDraftEntry("chan-unchanged", "hello", "chan-1", [], []);
+  });
+
+  assert.equal(callCount, 0, "unchanged cleanup must not notify subscribers");
+  assert.equal(versionAfter, versionBefore, "unchanged cleanup is not a write");
+  assert.equal(loadDraftEntry("chan-unchanged")?.updatedAt, originalUpdatedAt);
 });
 
 // ── persistDraftEntry clears on empty content ─────────────────────────────────

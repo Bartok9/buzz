@@ -21,8 +21,7 @@ export type InboxFilter =
   | "mention"
   | "thread"
   | "needs_action"
-  | "activity"
-  | "agent_activity"
+  | "agents"
   | "reminders"
   | "drafts";
 

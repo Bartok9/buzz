@@ -74,6 +74,16 @@ test.describe("reminders", () => {
       name: "Reminders",
     });
     await expect(remindersOption).toBeVisible();
+    await expect(
+      page.getByRole("menuitemradio", { name: "Activity", exact: true }),
+    ).toHaveCount(0);
+    const agentsOption = page.getByRole("menuitemradio", {
+      name: "Agents",
+      exact: true,
+    });
+    await expect(agentsOption).toBeVisible();
+    await agentsOption.click();
+    await expect(page.getByText("No agent updates found")).toBeVisible();
     await waitForAnimations(page);
   });
 
@@ -162,7 +172,11 @@ test.describe("reminders", () => {
     ]);
 
     await openRemindersFilter(page);
-    await expect(page.getByText("Follow up on this message")).toBeVisible();
+    await expect(
+      page
+        .getByTestId("home-inbox-reminders")
+        .getByText("Follow up on this message"),
+    ).toBeVisible();
     await waitForAnimations(page);
   });
 
@@ -211,8 +225,12 @@ test.describe("reminders", () => {
     ]);
 
     await openRemindersFilter(page);
-    await expect(page.getByText("Reply to Alice")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Overdue" })).toBeVisible();
+    await expect(
+      page.getByTestId("home-inbox-reminders").getByText("Reply to Alice"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("home-reminder-item-rem-overdue-01"),
+    ).toContainText("overdue");
     await waitForAnimations(page);
   });
 });
@@ -240,7 +258,7 @@ function aliceReminderContent() {
 }
 
 // Nav badge — the surface unit tests can't prove: a due reminder driving the
-// Inbox nav item's `(1)` count. The count is gated behind `homeBadgeEnabled`,
+// Activity nav item's `(1)` count. The count is gated behind `homeBadgeEnabled`,
 // so seed that setting on before installMockBridge (addInitScript runs at
 // document start, ahead of the app reading localStorage).
 const NOTIFICATION_SETTINGS_KEY = `buzz-notification-settings.v2:${MOCK_PUBKEY}`;
@@ -256,7 +274,7 @@ test.describe("reminders nav badge", () => {
     await installMockBridge(page);
   });
 
-  test("09 — Inbox nav badge counts a due reminder", async ({ page }) => {
+  test("09 — Activity nav badge counts a due reminder", async ({ page }) => {
     await gotoInboxHome(page);
 
     // One overdue pending reminder (notBefore in the past) is the sole badge
@@ -272,6 +290,13 @@ test.describe("reminders nav badge", () => {
       }),
     ]);
 
+    await expect(page.getByTestId("inbox-reminder-badge")).toHaveCount(0);
+    const reminderRow = page.getByTestId("home-all-reminders-rem-navbadge-01");
+    await expect(reminderRow).toContainText("Hey team — checking in.");
+    await expect(reminderRow.getByText("In", { exact: true })).toBeVisible();
+    await expect(
+      reminderRow.getByText("#general", { exact: true }),
+    ).toBeVisible();
     await expect(page.getByTestId("sidebar-home-count")).toHaveText("1");
     await waitForAnimations(page);
   });
@@ -312,7 +337,7 @@ test.describe("reminders phase 2 — author, source, navigation", () => {
     await waitForAnimations(page);
   });
 
-  test("08 — clicking a reminder navigates to the message in context", async ({
+  test("08 — selecting a reminder shows detail before navigation", async ({
     page,
   }) => {
     await gotoInboxHome(page);
@@ -328,11 +353,17 @@ test.describe("reminders phase 2 — author, source, navigation", () => {
     ]);
 
     await openRemindersFilter(page);
-    // The reminder row body is a button whose preview text is the target
-    // message preview; clicking it navigates to the message in its channel.
-    await page.getByText("Reply to Alice").click();
+    // Activity follows the same list/detail pattern as the other filters.
+    await page
+      .getByTestId("home-inbox-reminders")
+      .getByText("Reply to Alice")
+      .click();
+    const detail = page.getByTestId("home-reminder-detail");
+    await expect(detail).toBeVisible();
+    await expect(detail.getByText("Hey team — checking in.")).toBeVisible();
+    await detail.getByRole("button", { name: "Open message" }).click();
 
-    // Lands in the #general chat view with the target message in context.
+    // Explicitly opening lands in #general with the target in context.
     await expect(page.getByTestId("chat-title")).toHaveText("general");
     await expect(
       page.getByTestId("message-timeline").getByText("Hey team — checking in."),

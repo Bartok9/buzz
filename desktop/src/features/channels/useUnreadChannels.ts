@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   EMPTY_SET,
+  isHomeActivityEvent,
   useLiveChannelUpdates,
   type UseLiveChannelUpdatesOptions,
 } from "@/features/channels/useLiveChannelUpdates";
@@ -52,7 +53,6 @@ export {
   readActivityFromStorage,
   writeActivityToStorage,
 } from "@/features/channels/threadActivityStorage";
-
 type UseUnreadChannelsOptions = UseLiveChannelUpdatesOptions & {
   pubkey?: string;
   relayClient?: RelayClient;
@@ -239,8 +239,8 @@ export function useUnreadChannels(
   const mutedChannelIdsRef = React.useRef<ReadonlySet<string>>(new Set());
   mutedChannelIdsRef.current = mutedChannelIdsOption ?? new Set();
 
-  // Thread reply events that triggered notifications — surfaced in the Home
-  // activity feed as synthetic FeedItems.
+  // Thread replies and external DM messages that triggered notifications —
+  // surfaced in the Home activity feed as synthetic FeedItems.
   const threadActivityRef = React.useRef<ThreadActivityItem[]>([]);
   // Tracks the (pubkey:relayUrl) scope currently loaded into threadActivityRef.
   // Writers guard against this before merging so in-flight writes from a prior
@@ -477,7 +477,7 @@ export function useUnreadChannels(
     [normalizedPubkey],
   );
 
-  const handleThreadReplyNotification = React.useCallback(
+  const handleHomeActivity = React.useCallback(
     (channelId: string, event: RelayEvent) => {
       // Guard: don't merge into a ref whose scope has drifted from the current
       // identity. Also reject an empty scope — activityScopeKey() returns ""
@@ -551,7 +551,7 @@ export function useUnreadChannels(
   useLiveChannelUpdates(channels, activeChannelId, {
     ...liveUpdateOptions,
     onChannelMessage: handleChannelMessage,
-    onThreadReplyNotification: handleThreadReplyNotification,
+    onHomeActivity: handleHomeActivity,
     onSelfChannelMessage: handleSelfChannelMessage,
     participatedRootIds: participatedRootIdsRef.current,
     followedRootIds: liveUpdateOptions.followedRootIds,
@@ -662,7 +662,7 @@ export function useUnreadChannels(
           // applying the notification filter to both.
           let maxExternal = 0;
           const unreadEvents: ObservedUnreadEvent[] = [];
-          const threadReplies: ThreadActivityItem[] = [];
+          const activityItems: ThreadActivityItem[] = [];
           const chType = channel?.channelType;
           const chName = channel?.name ?? "";
           for (const event of events) {
@@ -707,8 +707,8 @@ export function useUnreadChannels(
                 isThreadedReply,
               }),
             );
-            if (isThreadedReply) {
-              threadReplies.push({
+            if (isHomeActivityEvent(chType === "dm", isThreadedReply)) {
+              activityItems.push({
                 id: event.id,
                 kind: event.kind,
                 pubkey: event.pubkey,
@@ -726,7 +726,7 @@ export function useUnreadChannels(
             ok: true,
             maxExternal,
             unreadEvents,
-            threadReplies,
+            threadReplies: activityItems,
           };
         } catch {
           // Transient relay failure for this channel — release the claim

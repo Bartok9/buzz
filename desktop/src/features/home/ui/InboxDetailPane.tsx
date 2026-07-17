@@ -1,4 +1,4 @@
-import { ArrowLeft, Hash, Mail, MoreHorizontal, Trash2 } from "lucide-react";
+import { ArrowLeft, Bell, Hash, MoreHorizontal, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import type {
@@ -57,6 +57,7 @@ type InboxDetailPaneProps = {
   isSendingReply?: boolean;
   isSinglePanelView?: boolean;
   isThreadContextLoading?: boolean;
+  hasActivityItems: boolean;
   item: InboxItem | null;
   messages?: InboxContextMessage[];
   profiles?: Record<string, UserProfileSummary>;
@@ -110,6 +111,7 @@ export function InboxDetailPane({
   isSendingReply = false,
   isSinglePanelView = false,
   isThreadContextLoading = false,
+  hasActivityItems,
   item,
   messages = [],
   profiles,
@@ -320,6 +322,13 @@ export function InboxDetailPane({
   }, [conversationId, selectedEventId, item, latchedDefaultParentId]);
 
   if (!item) {
+    const emptyTitle = hasActivityItems
+      ? "Select an update"
+      : "No activity to show";
+    const emptyDescription = hasActivityItems
+      ? "Choose an item from Activity to see the full conversation."
+      : "New mentions, replies, reminders, and updates will appear here.";
+
     return (
       <section
         className="flex min-h-0 min-w-0 items-center justify-center bg-background/60 px-6 py-10 pt-20 text-center"
@@ -327,11 +336,11 @@ export function InboxDetailPane({
       >
         <div className="max-w-sm">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <Mail className="h-6 w-6" />
+            <Bell className="h-6 w-6" />
           </div>
-          <p className="mt-4 text-base font-semibold">Select a message</p>
+          <p className="mt-4 text-base font-semibold">{emptyTitle}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Pick an inbox item to see the full message and react to it.
+            {emptyDescription}
           </p>
         </div>
       </section>
@@ -390,7 +399,7 @@ export function InboxDetailPane({
               >
                 {onBack ? (
                   <Button
-                    aria-label="Back to inbox list"
+                    aria-label="Back to activity list"
                     className="rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                     onClick={onBack}
                     size="icon"

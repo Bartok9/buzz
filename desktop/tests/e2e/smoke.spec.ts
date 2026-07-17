@@ -70,19 +70,6 @@ async function expectHomeView(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("home-inbox-list")).toBeVisible();
 }
 
-async function selectHomeInboxFilter(
-  page: import("@playwright/test").Page,
-  label: "Activity" | "Agents",
-) {
-  await page
-    .getByTestId("home-inbox")
-    .getByRole("button", {
-      name: /^Filter inbox:/,
-    })
-    .click();
-  await page.getByRole("menuitemradio", { name: label }).click();
-}
-
 test.beforeEach(async ({ page }) => {
   await installMockBridge(page);
 });
@@ -298,19 +285,15 @@ test("opens a mocked channel from the inbox feed", async ({ page }) => {
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 });
 
-test("inbox feed shows channel and agent activity sections", async ({
-  page,
-}) => {
+test("All activity includes channel and agent updates", async ({ page }) => {
   const inboxList = page.getByTestId("home-inbox-list");
 
   await page.goto("/");
 
-  await selectHomeInboxFilter(page, "Activity");
   await expect(inboxList).toContainText(
     "Engineering shipped the desktop build.",
   );
 
-  await selectHomeInboxFilter(page, "Agents");
   await expect(inboxList).toContainText(
     "Agent progress: channel index complete.",
   );
@@ -325,7 +308,6 @@ test("inbox agent hover hides actions without agent access", async ({
 }) => {
   await page.goto("/");
 
-  await selectHomeInboxFilter(page, "Agents");
   const agentRow = page.getByTestId("home-inbox-item-mock-feed-agent");
   await expect(agentRow).toContainText(
     "Agent progress: channel index complete.",
@@ -358,7 +340,6 @@ test("opens a mocked forum activity item from the inbox feed", async ({
 }) => {
   await page.goto("/");
 
-  await selectHomeInboxFilter(page, "Activity");
   await expect(page.getByTestId("home-inbox-list")).toContainText(
     "Engineering shipped the desktop build.",
   );

@@ -23,6 +23,43 @@ export function mergeKnownAgentPubkeys(
 }
 
 /**
+ * Agent identities controlled by the current user: agents managed by this
+ * desktop plus relay agents whose NIP-OA profile declares the user as owner.
+ * This is intentionally narrower than `mergeKnownAgentPubkeys`, which also
+ * contains agents owned by other community members.
+ */
+export function mergeOwnedAgentPubkeys(
+  managedAgents: readonly { pubkey: string }[] | undefined,
+  profiles:
+    | Readonly<
+        Record<string, { ownerPubkey?: string | null; isAgent?: boolean }>
+      >
+    | undefined,
+  currentPubkey: string | null | undefined,
+): ReadonlySet<string> {
+  const pubkeys = new Set<string>();
+  for (const agent of managedAgents ?? []) {
+    pubkeys.add(normalizePubkey(agent.pubkey));
+  }
+
+  if (!currentPubkey) {
+    return pubkeys;
+  }
+
+  const ownerPubkey = normalizePubkey(currentPubkey);
+  for (const [pubkey, profile] of Object.entries(profiles ?? {})) {
+    if (
+      profile.ownerPubkey &&
+      normalizePubkey(profile.ownerPubkey) === ownerPubkey
+    ) {
+      pubkeys.add(normalizePubkey(pubkey));
+    }
+  }
+
+  return pubkeys;
+}
+
+/**
  * Channel-scoped variant: the managed ∪ relay baseline plus this channel's
  * bot members (role `bot` or `isAgent`), so member-only agents are included.
  */

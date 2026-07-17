@@ -34,16 +34,17 @@ export type UseLiveChannelUpdatesOptions = {
   onLiveMention?: () => void;
   /**
    * Fired for live "new content" events in a member channel authored by
-   * someone other than the current user. Thread replies also fire
-   * onThreadReplyNotification so Home inbox activity stays in sync. Used to
-   * drive the observed unread-event map that powers sidebar unread state.
+   * someone other than the current user. Thread replies and DM messages also
+   * fire onHomeActivity so the Home activity list stays in sync. Used to drive
+   * the observed unread-event map that powers sidebar unread state.
    * See `UNREAD_TRIGGER_KINDS` for the exact kind set.
    */
   onChannelMessage?: (channelId: string, event: RelayEvent) => void;
   /**
-   * Fired for thread replies that should be surfaced as Home inbox activity.
+   * Fired for thread replies and external DM messages that should be surfaced
+   * as Home activity.
    */
-  onThreadReplyNotification?: (channelId: string, event: RelayEvent) => void;
+  onHomeActivity?: (channelId: string, event: RelayEvent) => void;
   /**
    * Fired for external thread replies that do not match the locally-known
    * interest sets. Callers can perform an async backfill and then decide
@@ -86,6 +87,13 @@ export function isChannelUnreadTriggerKind(kind: number, isDmChannel: boolean) {
   return isDmChannel
     ? isDmNotifiableKind(kind)
     : UNREAD_TRIGGER_KINDS.has(kind);
+}
+
+export function isHomeActivityEvent(
+  isDmChannel: boolean,
+  isThreadedReply: boolean,
+) {
+  return isDmChannel || isThreadedReply;
 }
 
 export function withChannelTagFallback(
@@ -278,8 +286,8 @@ export function useLiveChannelUpdates(
         }
       } else {
         options.onChannelMessage?.(channelId, event);
-        if (isThreadedReply) {
-          options.onThreadReplyNotification?.(channelId, event);
+        if (isHomeActivityEvent(isDmChannel, isThreadedReply)) {
+          options.onHomeActivity?.(channelId, event);
         }
       }
 
