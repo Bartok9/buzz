@@ -1,25 +1,18 @@
 # Releasing Buzz
 
-Buzz has three independent release lanes, each driven by a release PR — no human
-ever pushes a git tag:
+Buzz has three independent release lanes. Desktop and relay use release PRs;
+mobile uses a release branch plus immutable candidate tags:
 
-| Lane | Recipe | Artifact |
-|------|--------|----------|
+| Lane | Entry point | Artifact |
+|------|-------------|----------|
 | Desktop | `just release-desktop` | Signed desktop app (macOS/Linux) |
 | Relay | `just release-relay` | `ghcr.io/block/buzz` container image |
-| Mobile | `just release-mobile` | Buzz mobile app (tag is the `sprout_ref` for the internal build) |
+| Mobile | `scripts/mobile-release.sh` | Buzz mobile app |
 
-The three lanes version independently: the desktop version lives in
-`desktop/package.json`, the relay version in `crates/buzz-relay/Cargo.toml`, and
-the mobile version in `mobile/pubspec.yaml`.
-
-The mobile lane publishes a `mobile-v<version>` tag that is consumed
-**manually**, cross-repo, as the `sprout_ref` input to the internal
-`buzz-releases` Buildkite pipeline (iOS dogfood → Block Comp Portal, App Store →
-TestFlight — see [Internal Releases](#internal-releases)). The OSS lane is
-tag-only **by design**: OSS `block/buzz` CI cannot trigger CI in the private
-`buzz-releases` repo (infosec), so a human cuts the internal build from the tag
-rather than auto-dispatching across that boundary.
+The lanes version independently. Desktop reads its manifests, relay reads its
+crate manifest, and mobile derives both source and marketing version from the
+exact candidate tag. The mobile handoff to the private `buzz-releases` pipeline
+remains manual because OSS CI cannot trigger private CI.
 
 ## Quick Start
 
@@ -27,173 +20,151 @@ rather than auto-dispatching across that boundary.
 # Desktop release (next patch version)
 just release-desktop
 
-# Desktop patch / minor / explicit
-just release-desktop patch
+# Desktop explicit version
 just release-desktop 0.4.0
-just release-desktop 1.0.0
 
-# Relay release (same argument forms)
+# Relay release
 just release-relay
 just release-relay 0.4.0
 
-# Mobile release (same argument forms)
-just release-mobile
-just release-mobile 0.4.0
+# Start mobile stabilization from remote main
+scripts/mobile-release.sh start 0.5.0
+
+# Publish each tested candidate from the remote release-branch tip
+scripts/mobile-release.sh candidate 0.5.0
+
+# After store rollout selects a tested candidate, record that exact RC
+scripts/mobile-release.sh finalize 0.5.0-rc.2
 ```
 
-`just release-desktop` creates a `version-bump/<version>` PR; `just
-release-relay` creates a `relay-release/<version>` PR; `just release-mobile`
-creates a `mobile-release/<version>` PR. Each bumps its own version manifest,
-regenerates lockfiles, and appends a changelog entry. Merge the PR to trigger
-the build automatically (the mobile tag is instead the `sprout_ref` a human
-feeds the internal build — see above).
-
-Re-running any of these recipes with the same version is safe — it detects the
-existing branch and PR, resets to current `main`, regenerates the changelog
-with any new commits, and updates the PR in place.
+Desktop and relay releases use metadata PRs. Mobile does not. Its moving
+`mobile-release/<version>` branch is the stabilization line, and every
+`mobile-v<version>-rc.N` tag is an immutable candidate identity.
 
 ---
 
 ## How It Works
 
-All three lanes share one engine; they differ only in which version manifest
-they bump, which branch prefix they use, and what the merge triggers.
-
-The merge workflow creates tags with a short-lived installation token from the
-dedicated `buzz-release-bot` GitHub App. Release-tag rules allow that App to
-create matching tags and prevent other actors from creating, moving, or
-deleting them. The workflow's default `GITHUB_TOKEN` is read-only.
-
 ### Desktop
 
-1. **`just release-desktop`** runs locally on `main` — computes the next
-   version, creates (or reuses) a `version-bump/<version>` branch, bumps the
-   desktop manifests, regenerates lockfiles, generates a changelog
-   entry in `CHANGELOG.md`, commits, pushes, and opens (or updates) a PR.
-2. **Merge the PR** — the `auto-tag-on-release-pr-merge` workflow detects the
-   `version-bump/*` branch merge and pushes a `v<version>` tag.
-3. **Tag triggers `release.yml`** — builds, signs, notarizes, and publishes the
-   desktop app for macOS and Linux.
+1. **`just release-desktop`** runs locally on `main`, creates or updates a
+   `version-bump/<version>` PR, bumps the desktop manifests, regenerates
+   lockfiles, and updates `CHANGELOG.md`.
+2. **Merge the PR.** `auto-tag-on-release-pr-merge` pushes `v<version>`.
+3. **The tag triggers `release.yml`.** It builds, signs, notarizes, and
+   publishes the desktop app for macOS and Linux.
 
 ### Relay
 
-1. **`just release-relay`** runs locally on `main` — computes the next relay
-   version, creates (or reuses) a `relay-release/<version>` branch, bumps
-   `crates/buzz-relay/Cargo.toml`, regenerates `Cargo.lock`, generates a
-   changelog entry in `crates/buzz-relay/CHANGELOG.md`, commits, pushes, and
-   opens (or updates) a PR.
-2. **Merge the PR** — the `auto-tag-on-release-pr-merge` workflow detects the
-   `relay-release/*` branch merge and pushes a `relay-v<version>` tag.
-3. **Tag triggers `docker.yml`** — the `relay-v<version>` push triggers
-   `docker.yml`, which builds the multi-arch relay
-   image and publishes `ghcr.io/block/buzz:<version>` (plus `:<major>.<minor>`,
-   `:<major>`, and `:latest` for stable releases). Prereleases
-   (`relay-v<version>-rc.1`) publish only the prerelease tag and do **not**
-   move `:latest`. GitHub runs the tag trigger because the tag is created by
-   the dedicated GitHub App rather than the workflow's `GITHUB_TOKEN`.
+1. **`just release-relay`** runs locally on `main`, creates or updates a
+   `relay-release/<version>` PR, bumps `crates/buzz-relay/Cargo.toml`,
+   regenerates `Cargo.lock`, and updates the relay changelog.
+2. **Merge the PR.** `auto-tag-on-release-pr-merge` pushes
+   `relay-v<version>`.
+3. **The tag triggers `docker.yml`.** Stable releases update the version
+   aliases and `latest`; prereleases do not.
 
-Every push to `main` continues to build and publish `:main` + `:sha-<7>` tags
-(the rolling development image). The `:latest` tag tracks the latest **stable**
-relay release only — it does not move on main pushes or prereleases.
+Every push to `main` continues to publish the rolling relay `:main` and
+`:sha-<7>` tags.
 
 ### Mobile
 
-1. **`just release-mobile`** runs locally on `main` — computes the next mobile
-   version, creates (or reuses) a `mobile-release/<version>` branch, bumps
-   `mobile/pubspec.yaml` (preserving the `+build` number), regenerates
-   `mobile/pubspec.lock`, generates a changelog entry in `mobile/CHANGELOG.md`,
-   commits, pushes, and opens (or updates) a PR.
-2. **Merge the PR** — the `auto-tag-on-release-pr-merge` workflow detects the
-   `mobile-release/*` branch merge and pushes a `mobile-v<version>` tag.
-3. **The tag is consumed manually, cross-repo** — nothing in OSS `block/buzz`
-   builds on the tag (OSS CI must not trigger CI in the private `buzz-releases`
-   repo — infosec). A human feeds the `mobile-v<version>` tag as the
-   `sprout_ref` input to the internal `buzz-releases` Buildkite pipeline, which
-   builds and ships iOS to Block Comp Portal (dogfood) and TestFlight (App
-   Store, opt-in). See [Internal Releases](#internal-releases).
+1. **Start a stabilization branch.** From a clean checkout, run
+   `scripts/mobile-release.sh start X.Y.Z`. The script resolves the exact
+   remote `main` commit and creates `mobile-release/X.Y.Z` there. Fixes may be
+   merged or pushed to this branch while the release is stabilized.
+2. **Tag a candidate.** Run `scripts/mobile-release.sh candidate X.Y.Z`. It
+   resolves the exact remote release-branch tip and publishes the next
+   annotated `mobile-vX.Y.Z-rc.N` tag. Existing candidates are never moved.
+3. **Build the exact tag.** Enter that candidate tag as `mobile_ref` in the
+   private Buzz mobile Buildkite pipeline. OSS CI deliberately cannot trigger
+   that private pipeline. The tag supplies both source commit and release
+   version. Flutter receives clean marketing version `X.Y.Z`; Buildkite's
+   monotonically increasing build number supplies the platform build number.
+4. **Finalize without rebuilding.** Promote the signed artifacts from the
+   selected tested RC to the stores, then run
+   `scripts/mobile-release.sh finalize X.Y.Z-rc.N`. This verifies that the tag
+   is reachable from the matching release branch and publishes a GitHub Release
+   on that same RC tag. There is no stable alias tag and no final rebuild.
+
+`mobile/pubspec.yaml` keeps `0.0.0+1` only as a valid, visibly non-release
+fallback for local development and validation builds. Release jobs always
+inject both version fields. `mobile/CHANGELOG.md` is retained as historical
+release data; GitHub Release notes are the release ledger going forward.
+
+### Required tag protection
+
+Do not publish authoritative mobile candidates until the repository's
+[`Release` tag ruleset](https://github.com/block/buzz/rules/14378754) is active.
+It must reject creation outside the approved release operators and reject all
+updates, deletion, and non-fast-forward changes to release tags. Candidate tags
+are the sole release authority, so a disabled ruleset is a hard rollout blocker.
 
 ---
 
-## Release Types
+## Version Sources
 
-The argument forms below apply to `release-desktop`, `release-relay`, and
-`release-mobile`:
+| Lane | Release version authority |
+|------|---------------------------|
+| Desktop | `desktop/package.json` and synchronized desktop manifests |
+| Relay | `crates/buzz-relay/Cargo.toml` |
+| Mobile | Exact `mobile-vX.Y.Z-rc.N` remote tag |
 
-| Command | Version | Example |
-|---------|---------|---------|
-| `just release-desktop` | Next patch | `0.3.0` → `0.3.1` |
-| `just release-desktop patch` | Next patch | `0.3.0` → `0.3.1` |
-| `just release-desktop 0.4.0` | Explicit minor | `0.3.1` → `0.4.0` |
-| `just release-desktop 1.0.0` | Explicit | `1.0.0` |
-
----
-
-## Version Files
-
-`just bump-desktop-version <version>` (desktop lane) updates these files:
-
-| File | Field |
-|------|-------|
-| `desktop/package.json` | `"version"` |
-| `desktop/src-tauri/tauri.conf.json` | `"version"` |
-| `desktop/src-tauri/Cargo.toml` | `version` (under `[package]`) |
-
-It also regenerates `pnpm-lock.yaml` and `desktop/src-tauri/Cargo.lock`.
-
-`just bump-relay-version <version>` (relay lane) updates
-`crates/buzz-relay/Cargo.toml` (`version` under `[package]`) and regenerates the
-workspace `Cargo.lock`.
-
-`just bump-mobile-version <version>` (mobile lane) updates
-`mobile/pubspec.yaml` (`version:`, preserving the `+build` number) and
-regenerates `mobile/pubspec.lock`.
+`just bump-desktop-version <version>` updates the desktop manifests and
+regenerates their lockfiles. `just bump-relay-version <version>` updates the
+relay crate and regenerates `Cargo.lock`. Mobile has no bump recipe or
+release-metadata PR.
 
 ---
 
 ## Manual Fallback
 
-If the automated flow isn't suitable (e.g., building from a non-main ref):
+Desktop supports the manual GitHub Actions fallback:
 
-1. Go to **Actions > Release** in the GitHub UI
-2. Click **Run workflow**
-3. Provide the semver version (no `v` prefix) and the ref to build from
+1. Go to **Actions > Release** in the GitHub UI.
+2. Click **Run workflow**.
+3. Provide the semver version and the immutable tag ref to build.
+
+Mobile intentionally has no branch or arbitrary-ref fallback. Buildkite accepts
+only an exact protected candidate tag.
 
 ---
 
 ## Internal Releases
 
-After the OSS release ships, trigger an internal build via the
-[sprout-releases Buildkite pipeline](https://buildkite.com/runway/sprout-releases).
-See the [buzz-releases README](https://github.com/squareup/buzz-releases#cutting-a-release)
-for the full step-by-step instructions and input field reference.
+For mobile, trigger the private
+[Release Mobile pipeline](https://buildkite.com/runway/buzz-mobile-releases) with
+the exact RC tag. For desktop, use
+[Release Desktop](https://buildkite.com/runway/sprout-releases). See the
+[buzz-releases README](https://github.com/squareup/buzz-releases#cutting-a-release)
+for the private pipeline contract.
 
 ---
 
 ## What Gets Published
 
-Each release produces two GitHub releases:
+Desktop publishes two GitHub releases:
 
-1. **`v<version>`** — the user-facing release with the `.dmg` installer
-   (macOS).
+1. **`v<version>`**: the user-facing release with installers.
+2. **`buzz-desktop-latest`**: the rolling auto-updater release.
 
-2. **`buzz-desktop-latest`** — a rolling pre-release for the Tauri
-   auto-updater containing `latest.json` and each platform's signed
-   updater artifact plus its `.sig` signature (`.tar.gz` on macOS,
-   `.AppImage` on Linux, and `_alpha-unsigned.exe` on Windows).
+Mobile finalization adds one GitHub Release to the selected
+`mobile-v<version>-rc.N` tag. It records which already-tested candidate was
+promoted and does not publish or rebuild the store binaries.
 
 ---
 
 ## Platform Support
 
-The release workflow builds **two separate macOS DMGs** — Apple
+The release workflow builds **two separate macOS DMGs**: Apple
 Silicon (`darwin-aarch64`, the `release` job) and Intel
-(`darwin-x86_64`, the `release-macos-x64` job) — plus Linux `.deb` and
+(`darwin-x86_64`, the `release-macos-x64` job), plus Linux `.deb` and
 `.AppImage`. Both macOS DMGs are codesigned, notarized, and attached to
 the same `v<version>` release. Intel users download the `_x64.dmg`.
 
 The Linux AppImage is post-processed by `desktop/scripts/fix-appimage.sh`,
 which strips infra libraries over-bundled by linuxdeploy (they crash on
-Mesa 25+ / GLib 2.88 distros — see
+Mesa 25+ / GLib 2.88 distros; see
 [tauri-apps/tauri#15665](https://github.com/tauri-apps/tauri/issues/15665))
 and re-signs the artifact. As a result the AppImage relies on the
 host's Wayland/GStreamer/graphics stack and requires GLib >= 2.72
@@ -224,15 +195,21 @@ Switch to `main` and pull latest before running the release recipe.
 ### `just release-desktop` fails with "working tree is dirty"
 Commit or stash your changes before running the release recipe.
 
-### New commits merged after creating the release PR
-Re-run the release recipe (`just release-desktop`, `just release-relay`, or `just release-mobile`) from an up-to-date `main`. It resets the branch to current `main`, regenerates the changelog and PR body to include the new commits, and force-pushes the updated branch.
+### New commits after starting mobile stabilization
 
-### Build fails at "Validate version"
-The version string must be valid semver: `MAJOR.MINOR.PATCH` with an optional pre-release suffix. Do not include a `v` prefix.
+Land the intended fixes on `mobile-release/<version>`, then run
+`scripts/mobile-release.sh candidate <version>` again. It publishes a new
+immutable RC tag from the current remote branch tip.
+
+### A mobile candidate command selects the wrong RC number
+
+Do not retry by moving or deleting a tag. Inspect the remote `mobile-v*` tags
+and resolve the unexpected state. Candidate numbers are monotonically
+increasing remote identities.
 
 ### Auto-updater reports "no update available"
 Verify that the `buzz-desktop-latest` release exists and contains a
 valid `latest.json`. The manifest covers all four platform keys
 (`darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`,
 `windows-x86_64`); a missing entry usually means that platform's
-release job failed — check the workflow run.
+release job failed. Check the workflow run.
