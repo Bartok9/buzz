@@ -727,7 +727,10 @@ export function AgentInstanceEditDialog({
         );
       }
       if (result.profileSyncError) {
-        console.warn("Relay profile sync failed:", result.profileSyncError);
+        toast.warning(
+          `${result.agent.name} was saved locally, but its relay profile could not be updated. Channel members may still see the old name.`,
+          { description: result.profileSyncError },
+        );
       }
       handleOpenChange(false);
       onUpdated?.(result.agent);
