@@ -41,6 +41,7 @@ import {
   startManagedAgent,
   stopManagedAgent,
 } from "@/shared/api/tauriManagedAgents";
+import { bootstrapManagedAgentRuntimePairs } from "@/features/agents/managedAgentRuntimeHooks";
 import {
   createPersona,
   deletePersona,
@@ -346,6 +347,12 @@ export function useCreateManagedAgentMutation() {
           ];
         },
       );
+
+      // The create command spawns only the active community's pair — kick a
+      // reconcile so the new agent gets a lazy pair in every other community.
+      if (created.agent.backend.type === "local") {
+        bootstrapManagedAgentRuntimePairs(queryClient);
+      }
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
