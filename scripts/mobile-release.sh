@@ -37,7 +37,7 @@ require_candidate_version() {
 require_ruleset() {
   local state
   command -v gh >/dev/null 2>&1 || fail "gh is required"
-  state="$(gh api "repos/{owner}/{repo}/rulesets/14378754" --jq .enforcement)" || \
+  state="$(gh api "repos/block/buzz/rulesets/14378754" --jq .enforcement)" || \
     fail "could not verify the Release tag ruleset"
   [[ "$state" == "active" ]] || \
     fail "Release tag ruleset 14378754 is '$state'; activate it before publishing candidates"
@@ -125,8 +125,17 @@ case "$command" in
     fi
     start_sha="$(remote_branch_commit_sha "refs/heads/$start_ref")" || \
       fail "origin/$start_ref does not exist"
-    git branch "$branch" "$start_sha"
-    git push --set-upstream origin "$branch"
+    git fetch -q origin "refs/heads/$start_ref"
+    fetched_sha="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+    [[ "$fetched_sha" == "$start_sha" ]] || \
+      fail "origin/$start_ref moved while it was being resolved"
+    if ! git branch "$branch" "$fetched_sha"; then
+      fail "local branch $branch already exists"
+    fi
+    if ! git push --set-upstream origin "$branch"; then
+      git branch -D "$branch" >/dev/null
+      fail "could not publish $branch"
+    fi
     printf 'Created %s at %s from %s.\n' "$branch" "$start_sha" "$start_ref"
     ;;
 
@@ -167,6 +176,7 @@ case "$command" in
     [[ "$#" -eq 2 ]] || usage
     candidate="$2"
     require_candidate_version "$candidate"
+    require_ruleset
     tag="mobile-v$candidate"
     branch="mobile-release/$candidate_version"
     tag_sha="$(remote_tag_commit_sha "refs/tags/$tag")" || \
@@ -184,8 +194,13 @@ case "$command" in
     fetched_sha="$(git -C "$tmp" rev-parse --verify 'FETCH_HEAD^{commit}')"
     [[ "$fetched_sha" == "$tag_sha" ]] || \
       fail "$tag moved while it was being resolved"
-    git -C "$tmp" fetch -q --depth 1 origin "$branch_sha"
-    git -C "$tmp" merge-base --is-ancestor "$tag_sha" "$branch_sha" || \
+    if ! git -C "$tmp" fetch -q --unshallow origin "refs/heads/$branch"; then
+      fail "could not fetch complete history for origin/$branch"
+    fi
+    fetched_branch_sha="$(git -C "$tmp" rev-parse --verify 'FETCH_HEAD^{commit}')"
+    [[ "$fetched_branch_sha" == "$branch_sha" ]] || \
+      fail "origin/$branch moved while it was being resolved"
+    git -C "$tmp" merge-base --is-ancestor "$tag_sha" "$fetched_branch_sha" || \
       fail "$tag is not reachable from origin/$branch"
 
     if gh release view "$tag" >/dev/null 2>&1; then

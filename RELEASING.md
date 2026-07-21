@@ -69,7 +69,8 @@ Every push to `main` continues to publish the rolling relay `:main` and
 
 ### Mobile
 
-1. **Start a stabilization branch.** From a clean checkout, run
+1. **Start a stabilization branch.** From a clean checkout whose `origin` is
+   `block/buzz`, run
    `scripts/mobile-release.sh start X.Y.Z`. The script resolves the exact
    remote `main` commit and creates `mobile-release/X.Y.Z` there. Fixes may be
    merged or pushed to this branch while the release is stabilized.

@@ -13,7 +13,7 @@ cat > "$bin/gh" <<'GH'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$1:$2" in
-  api:repos/{owner}/{repo}/rulesets/14378754) printf '%s\n' "${GH_RULESET_STATE:-active}" ;;
+  api:repos/block/buzz/rulesets/14378754) printf '%s\n' "${GH_RULESET_STATE:-active}" ;;
   release:view) exit 1 ;;
   release:create) printf '%s\n' "$*" > "$GH_CAPTURE" ;;
   *) exit 2 ;;
@@ -32,12 +32,27 @@ git -C "$work" commit -qm first
 git -C "$work" branch -M main
 git -C "$work" push -q -u origin main
 
+# Start must work from a stale operator clone by fetching the remotely resolved
+# source commit before creating the local release branch.
+operator="$tmp/operator"
+git clone -q "$remote" "$operator"
+git -C "$operator" config user.name test
+git -C "$operator" config user.email test@example.com
+echo remote-only >> "$work/file"
+git -C "$work" commit -qam remote-only
+git -C "$work" push -q origin main
+remote_main_sha="$(git --git-dir="$remote" rev-parse refs/heads/main)"
+if git -C "$operator" cat-file -e "$remote_main_sha^{commit}" 2>/dev/null; then
+  echo "stale-clone fixture already contains the remote-only commit" >&2
+  exit 1
+fi
 (
-  cd "$work"
+  cd "$operator"
   "$script" start 1.2.3
 )
 [[ "$(git --git-dir="$remote" rev-parse refs/heads/mobile-release/1.2.3)" == \
-   "$(git -C "$work" rev-parse main)" ]]
+   "$remote_main_sha" ]]
+git -C "$work" fetch -q origin refs/heads/mobile-release/1.2.3
 
 # Candidate tags always point at the remote release branch, not the operator's
 # current checkout, and sequence monotonically without moving an old tag.
@@ -53,6 +68,14 @@ branch_sha="$(git --git-dir="$remote" rev-parse refs/heads/mobile-release/1.2.3)
 [[ "$(git --git-dir="$remote" rev-parse 'refs/tags/mobile-v1.2.3-rc.1^{commit}')" == "$branch_sha" ]]
 [[ "$(git --git-dir="$remote" rev-parse 'refs/tags/mobile-v1.2.3-rc.2^{commit}')" == "$branch_sha" ]]
 
+# A selected candidate remains valid after the release branch advances. This is
+# the normal finalization shape when later fixes or RCs landed after testing.
+echo third >> "$work/file"
+git -C "$work" commit -qam third
+git -C "$work" push -q origin HEAD:refs/heads/mobile-release/1.2.3
+advanced_branch_sha="$(git --git-dir="$remote" rev-parse refs/heads/mobile-release/1.2.3)"
+[[ "$advanced_branch_sha" != "$branch_sha" ]]
+
 # Authoritative candidates are blocked until the tag ruleset is active.
 if (
   cd "$work"
@@ -66,8 +89,46 @@ if git --git-dir="$remote" rev-parse --verify refs/tags/mobile-v1.2.3-rc.3 >/dev
   exit 1
 fi
 
-# The script must verify the existing tag, record the tested candidate, and
-# never create a stable mobile-vX.Y.Z tag.
+# Finalization also fails closed if tag protection is disabled.
+if (
+  cd "$work"
+  GH_RULESET_STATE=disabled GH_CAPTURE="$tmp/disabled-finalize-gh-call" \
+    "$script" finalize 1.2.3-rc.2 >/dev/null 2>&1
+); then
+  echo "candidate was finalized with tag protection disabled" >&2
+  exit 1
+fi
+[[ ! -e "$tmp/disabled-finalize-gh-call" ]]
+
+# A failed branch publication does not strand the local release branch.
+failing_operator="$tmp/failing-operator"
+git clone -q "$remote" "$failing_operator"
+git -C "$failing_operator" config user.name test
+git -C "$failing_operator" config user.email test@example.com
+cat > "$failing_operator/.git/hooks/pre-push" <<'HOOK'
+#!/usr/bin/env bash
+exit 1
+HOOK
+chmod +x "$failing_operator/.git/hooks/pre-push"
+if (
+  cd "$failing_operator"
+  git config core.hooksPath .git/hooks
+  "$script" start 9.9.9 >/dev/null 2>&1
+); then
+  echo "start succeeded despite a rejected push" >&2
+  exit 1
+fi
+if git -C "$failing_operator" show-ref --verify --quiet refs/heads/mobile-release/9.9.9; then
+  echo "failed start stranded a local release branch" >&2
+  exit 1
+fi
+if git --git-dir="$remote" show-ref --verify --quiet refs/heads/mobile-release/9.9.9; then
+  echo "failed start published a remote release branch" >&2
+  exit 1
+fi
+
+# The script must verify the existing non-tip tag, record the tested candidate,
+# and never create a stable mobile-vX.Y.Z tag.
 (
   export GH_CAPTURE="$tmp/gh-call"
   cd "$work"
