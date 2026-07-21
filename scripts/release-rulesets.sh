@@ -4,11 +4,6 @@ readonly RELEASE_TAG_RULESET_ID=14378754
 readonly RELEASE_BRANCH_RULESET_ID=19321162
 readonly RELEASE_APP_SLUG=buzz-release-bot
 
-if [[ -n "${BUZZ_RELEASE_CANONICAL_REMOTE:-}" && "${BUZZ_RELEASE_CONTRACT_TEST:-}" != "1" ]]; then
-  echo "Error: BUZZ_RELEASE_CANONICAL_REMOTE is reserved for release contract tests" >&2
-  return 1 2>/dev/null || exit 1
-fi
-
 fail_release_ruleset() {
   echo "Error: $*" >&2
   return 1
@@ -19,7 +14,7 @@ require_canonical_repository() {
 
   origin_url="$(git remote get-url origin 2>/dev/null)" || \
     fail_release_ruleset "origin is required and must point to block/buzz" || return 1
-  if [[ -n "$canonical_remote" && "$origin_url" == "$canonical_remote" ]]; then
+  if [[ "${BUZZ_RELEASE_CONTRACT_TEST:-}" == "1" && -n "$canonical_remote" && "$origin_url" == "$canonical_remote" ]]; then
     return 0
   fi
   case "$origin_url" in

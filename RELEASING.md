@@ -72,18 +72,31 @@ Every push to `main` continues to publish the rolling relay `:main` and
 1. **Start a stabilization branch.** From a clean checkout whose `origin` is
    `block/buzz`, run
    `scripts/mobile-release.sh start X.Y.Z`. The script resolves the exact
-   remote `main` commit and creates `mobile-release/X.Y.Z` there. Fixes may be
-   merged or pushed to this branch while the release is stabilized.
+   remote `main` commit and creates `mobile-release/X.Y.Z` there. The active
+   [`Mobile Release Branches` ruleset (19321162)](https://github.com/block/buzz/rules/19321162)
+   retains every matching branch and allows only fast-forward updates. Fixes may
+   be merged or pushed to this branch while the release is stabilized.
 2. **Tag a candidate.** Run `scripts/mobile-release.sh candidate X.Y.Z`. It
-   resolves the exact remote release-branch tip and publishes the next
-   annotated `mobile-vX.Y.Z-rc.N` tag. Existing candidates are never moved.
+   resolves the exact remote release-branch tip and asks the reviewed GitHub
+   Actions workflow to publish the next annotated `mobile-vX.Y.Z-rc.N` tag with
+   the ruleset-bypassing `buzz-release-bot` App. The command waits for the
+   workflow and verifies the exact tag before returning. Existing candidates
+   are never moved.
 3. **Build the exact tag.** Enter that candidate tag as `mobile_ref` in the
    private Buzz mobile Buildkite pipeline. OSS CI deliberately cannot trigger
    that private pipeline. The tag supplies both source commit and release
    version. Flutter receives clean marketing version `X.Y.Z`; Buildkite's
    monotonically increasing build number supplies the platform build number.
-4. **Finalize without rebuilding.** Promote the signed artifacts from the
-   selected tested RC to the stores, then run
+4. **Finalize without rebuilding.** Record the selected iOS and Android
+   Buildkite build URLs and confirm both validators logged the same candidate tag
+   and commit. For iOS, use the selected Release Mobile build's
+   `build-ios-appstore` output and confirm App Store Connect shows clean version
+   `X.Y.Z` with that build's `BUILDKITE_BUILD_NUMBER` before promoting that exact
+   TestFlight build. For Android, use the selected Buzz Android Release build's
+   artifact `Buzz-Play_X.Y.Z_<BUILDKITE_BUILD_NUMBER>.aab`; choose **Upload to
+   internal testing** in that same build's protected promotion block, which
+   downloads and verifies that exact artifact instead of rebuilding. After both
+   stores show the selected build numbers, run
    `scripts/mobile-release.sh finalize X.Y.Z-rc.N`. This verifies that the tag
    is reachable from the matching release branch and publishes a GitHub Release
    on that same RC tag. There is no stable alias tag and no final rebuild.
@@ -93,13 +106,22 @@ fallback for local development and validation builds. Release jobs always
 inject both version fields. `mobile/CHANGELOG.md` is retained as historical
 release data; GitHub Release notes are the release ledger going forward.
 
-### Required tag protection
+### Required release protection
 
-Do not publish authoritative mobile candidates until the repository's
-[`Release` tag ruleset](https://github.com/block/buzz/rules/14378754) is active.
-It must reject creation outside the approved release operators and reject all
-updates, deletion, and non-fast-forward changes to release tags. Candidate tags
-are the sole release authority, so a disabled ruleset is a hard rollout blocker.
+Do not publish authoritative mobile candidates until both repository rulesets
+are active and match the contracts below:
+
+- [`Release` (14378754)](https://github.com/block/buzz/rules/14378754) covers
+  `refs/tags/mobile-v*`, rejects creation except through its sole
+  `buzz-release-bot` always-bypass, and rejects updates, deletion, and
+  non-fast-forward changes.
+- [`Mobile Release Branches` (19321162)](https://github.com/block/buzz/rules/19321162)
+  covers `refs/heads/mobile-release/*` and rejects deletion and non-fast-forward
+  changes. Candidate builds and retries depend on retaining this ancestry line.
+
+Candidate tags are the sole release authority, so either missing or drifted
+ruleset is a hard rollout blocker. The release commands validate both contracts
+against canonical `block/buzz` before mutating or finalizing a release.
 
 ---
 
