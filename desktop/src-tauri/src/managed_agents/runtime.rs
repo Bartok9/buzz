@@ -711,6 +711,19 @@ pub fn spawn_agent_child(
     } else {
         command.env_remove("BUZZ_ACP_SYSTEM_PROMPT");
     }
+    // Codex/other ACP UIs title sessions from prompt opening text. Pass the
+    // Buzz-facing display name so buzz-acp can put [Session] first (#2334).
+    let session_label = record
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(record.name.trim()).filter(|s| !s.is_empty()));
+    if let Some(label) = session_label {
+        command.env("BUZZ_ACP_DISPLAY_NAME", label);
+    } else {
+        command.env_remove("BUZZ_ACP_DISPLAY_NAME");
+    }
     if let Some(model) = effective_model.as_deref() {
         command.env("BUZZ_ACP_MODEL", model);
     } else {
