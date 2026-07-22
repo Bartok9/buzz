@@ -227,6 +227,7 @@ fn legacy_managed_agent_auth_tag_skips_self_attestation() {
 }
 
 #[test]
+<<<<<<< HEAD
 fn provided_thread_ref_validates_and_preserves_root_and_parent() {
     let root = "11".repeat(32);
     let parent = "22".repeat(32);
@@ -235,4 +236,19 @@ fn provided_thread_ref_validates_and_preserves_root_and_parent() {
     assert_eq!(thread_ref.root_event_id.to_hex(), root);
     assert_eq!(thread_ref.parent_event_id.to_hex(), parent);
     assert!(thread_ref::provided_thread_ref("not-hex", &parent).is_err());
+=======
+fn feed_item_category_matches_frontend_union_singular() {
+    // The desktop `FeedItemCategory` union (shared/api/types.ts) and every
+    // frontend comparison (feed.ts / inbox.ts) plus the e2e bridge use the
+    // SINGULAR "mention". get_feed must emit that exact value so native
+    // mention items render the "X mentioned you" title instead of falling
+    // through to the needs-action fallback (#2106).
+    let keys = nostr::Keys::generate();
+    let ev = nostr::EventBuilder::text_note("hi")
+        .sign_with_keys(&keys)
+        .expect("sign");
+    let item = feed_item_from_event(&ev, "mention");
+    assert_eq!(item.category, "mention");
+    assert_ne!(item.category, "mentions", "must not emit the plural form");
+>>>>>>> 896448d (fix(desktop): emit singular "mention" feed category to match frontend contract)
 }
