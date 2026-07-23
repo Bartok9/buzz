@@ -46,11 +46,28 @@ pub fn apply_relay_mesh_env(
     // and spend that budget on an answer/tool call instead of hidden reasoning.
     // Without both settings Qwen3 either fails the router's fit check at the
     // agent default (32K) or can consume a tight cap before serializing a tool.
-    env.insert(
-        "BUZZ_AGENT_MAX_OUTPUT_TOKENS".to_string(),
-        "4096".to_string(),
-    );
-    env.insert("BUZZ_AGENT_THINKING_EFFORT".to_string(), "none".to_string());
+    //
+    // Only apply defaults when the user/record has not already set a value
+    // (#2558). apply_relay_mesh_env runs AFTER record env is merged, so an
+    // unconditional insert was clobbering UI-persisted max_tokens and breaking
+    // small-context model fit checks (agent green, silent no replies).
+    insert_default_if_unset(env, "BUZZ_AGENT_MAX_OUTPUT_TOKENS", "4096");
+    insert_default_if_unset(env, "BUZZ_AGENT_THINKING_EFFORT", "none");
+}
+
+#[cfg(feature = "mesh-llm")]
+fn insert_default_if_unset(
+    env: &mut std::collections::BTreeMap<String, String>,
+    key: &str,
+    value: &str,
+) {
+    let unset = env
+        .get(key)
+        .map(|v| v.trim().is_empty())
+        .unwrap_or(true);
+    if unset {
+        env.insert(key.to_string(), value.to_string());
+    }
 }
 
 #[cfg(all(test, feature = "mesh-llm"))]
@@ -80,6 +97,49 @@ mod tests {
             env.get(RELAY_MESH_PREFER_MESH_FOR_AUTO_ENV)
                 .map(String::as_str),
             Some("1")
+        );
+    }
+
+    #[test]
+    fn apply_relay_mesh_env_preserves_user_max_output_tokens() {
+        let mut env = BTreeMap::from([
+            ("BUZZ_AGENT_MAX_OUTPUT_TOKENS".to_string(), "1024".to_string()),
+            ("BUZZ_AGENT_THINKING_EFFORT".to_string(), "low".to_string()),
+        ]);
+        apply_relay_mesh_env(
+            &mut env,
+            Some(RELAY_MESH_PROVIDER_ID),
+            Some(RELAY_MESH_AUTO_MODEL_ID),
+        );
+        assert_eq!(
+            env.get("BUZZ_AGENT_MAX_OUTPUT_TOKENS").map(String::as_str),
+            Some("1024"),
+            "user/record max tokens must not be clobbered by relay-mesh default (#2558)"
+        );
+        assert_eq!(
+            env.get("BUZZ_AGENT_THINKING_EFFORT").map(String::as_str),
+            Some("low"),
+            "user thinking effort must not be clobbered"
+        );
+    }
+
+    #[test]
+    fn apply_relay_mesh_env_fills_default_when_user_max_tokens_empty() {
+        let mut env = BTreeMap::from([
+            ("BUZZ_AGENT_MAX_OUTPUT_TOKENS".to_string(), "  ".to_string()),
+        ]);
+        apply_relay_mesh_env(
+            &mut env,
+            Some(RELAY_MESH_PROVIDER_ID),
+            Some("Qwen3"),
+        );
+        assert_eq!(
+            env.get("BUZZ_AGENT_MAX_OUTPUT_TOKENS").map(String::as_str),
+            Some("4096")
+        );
+        assert_eq!(
+            env.get("BUZZ_AGENT_THINKING_EFFORT").map(String::as_str),
+            Some("none")
         );
     }
 }
