@@ -12,17 +12,19 @@ function runtime(id, availability, status) {
   return { id, availability, authStatus: { status } };
 }
 
-test("all bundled harnesses are visible in onboarding", () => {
+test("all bundled harnesses plus Cursor are visible in onboarding", () => {
   assert.equal(runtimeIsVisibleInOnboarding("claude"), true);
   assert.equal(runtimeIsVisibleInOnboarding("codex"), true);
   assert.equal(runtimeIsVisibleInOnboarding("goose"), true);
   assert.equal(runtimeIsVisibleInOnboarding("buzz-agent"), true);
+  assert.equal(runtimeIsVisibleInOnboarding("cursor"), true);
   assert.equal(runtimeIsVisibleInOnboarding("custom"), false);
 });
 
 test("visible onboarding runtimes use the product order", () => {
   const runtimes = [
     runtime("buzz-agent", "available", "not_applicable"),
+    runtime("cursor", "available", "logged_in"),
     runtime("codex", "available", "logged_in"),
     runtime("goose", "available", "not_applicable"),
     runtime("claude", "available", "logged_in"),
@@ -30,7 +32,7 @@ test("visible onboarding runtimes use the product order", () => {
 
   assert.deepEqual(
     getVisibleOnboardingRuntimes(runtimes).map(({ id }) => id),
-    ["claude", "codex", "goose", "buzz-agent"],
+    ["claude", "codex", "goose", "buzz-agent", "cursor"],
   );
 });
 
