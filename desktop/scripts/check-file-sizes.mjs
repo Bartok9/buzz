@@ -403,7 +403,9 @@ const overrides = new Map([
   // +8 (1081 -> 1089): mesh re-arm watchdog (#2304) adds mesh_ingress_dead_probes
   // AtomicU32 counter on AppState for consecutive dead-probe debounce. Narrow
   // counter field + init spars; still queued to split more AppState sections.
-  ["src-tauri/src/app_state.rs", 1089],
+  // +1 (1089 -> 1090): feature-gate the dead-probes initializer (micspiral #2304)
+  // so non-mesh builds compile under -D warnings; trailing-newline line count.
+  ["src-tauri/src/app_state.rs", 1090],
   // mesh_llm re-arm watchdog + Brad/micspiral correctness suite (#2304):
   // probe/evict identity gate, bounded stop timeout, process-map filter,
   // store-lock error persistence, consecutive-probe debounce, sentinel-cleared
