@@ -4,6 +4,7 @@ mod commands;
 mod error;
 mod help_tree;
 mod links;
+mod managed_agent_publish;
 mod validate;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
