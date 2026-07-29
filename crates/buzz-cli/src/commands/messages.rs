@@ -1894,7 +1894,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod compact_format_tests {
     use super::format_events;
