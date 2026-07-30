@@ -791,7 +791,10 @@ impl Config {
                     env("OPENAI_COMPAT_MODEL").as_deref(),
                 )
                 .ok_or_else(|| "config: OPENAI_COMPAT_MODEL required".to_string())?,
-                env_or("OPENAI_COMPAT_BASE_URL", "https://api.openai.com/v1"),
+                resolve_openai_compat_base_url(
+                    env("OPENAI_COMPAT_BASE_URL").as_deref(),
+                    env("OPENAI_BASE_URL").as_deref(),
+                ),
                 parse_openai_api(env("OPENAI_COMPAT_API").as_deref())?,
             ),
             Provider::Databricks | Provider::DatabricksV2 => (
@@ -982,6 +985,27 @@ impl Config {
         }
         Ok(())
     }
+}
+
+/// OpenAI-compatible base URL for `Provider::OpenAi`.
+///
+/// Precedence (specific → generic → default):
+/// 1. `OPENAI_COMPAT_BASE_URL` (Buzz-native)
+/// 2. `OPENAI_BASE_URL` (common toolbox default; issue #3630)
+/// 3. `https://api.openai.com/v1`
+fn resolve_openai_compat_base_url(
+    compat_base_url: Option<&str>,
+    openai_base_url: Option<&str>,
+) -> String {
+    for candidate in [compat_base_url, openai_base_url] {
+        if let Some(raw) = candidate {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_owned();
+            }
+        }
+    }
+    "https://api.openai.com/v1".to_owned()
 }
 
 fn env(k: &str) -> Option<String> {
@@ -1246,6 +1270,38 @@ mod tests {
         }
         let err = parse_openai_api(Some("nope")).unwrap_err();
         assert!(err.contains("OPENAI_COMPAT_API=nope"), "{err}");
+    }
+
+    #[test]
+    fn resolve_openai_compat_base_url_precedence() {
+        assert_eq!(
+            resolve_openai_compat_base_url(None, None),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            resolve_openai_compat_base_url(Some("https://compat.example/v1"), None),
+            "https://compat.example/v1"
+        );
+        assert_eq!(
+            resolve_openai_compat_base_url(None, Some("https://openai-base.example/v1")),
+            "https://openai-base.example/v1"
+        );
+        // Buzz-native compat wins over generic OPENAI_BASE_URL.
+        assert_eq!(
+            resolve_openai_compat_base_url(
+                Some("https://compat.example/v1"),
+                Some("https://openai-base.example/v1"),
+            ),
+            "https://compat.example/v1"
+        );
+        assert_eq!(
+            resolve_openai_compat_base_url(Some("  "), Some("https://openai-base.example/v1")),
+            "https://openai-base.example/v1"
+        );
+        assert_eq!(
+            resolve_openai_compat_base_url(Some("  "), Some("")),
+            "https://api.openai.com/v1"
+        );
     }
 
     #[test]
