@@ -397,11 +397,9 @@ impl ActionSink for RelayActionSink {
                     Tag::parse(["p", &mentioned])
                         .map_err(|e| ActionSinkError::EventBuild(format!("mention p tag: {e}")))?,
                 );
-                tags.push(
-                    Tag::parse(["mention", &mentioned]).map_err(|e| {
-                        ActionSinkError::EventBuild(format!("mention intent tag: {e}"))
-                    })?,
-                );
+                tags.push(Tag::parse(["mention", &mentioned]).map_err(|e| {
+                    ActionSinkError::EventBuild(format!("mention intent tag: {e}"))
+                })?);
             }
 >>>>>>> d8b6d0d (fix(mention): emit parallel p + mention tags on intentional @mentions)
 
