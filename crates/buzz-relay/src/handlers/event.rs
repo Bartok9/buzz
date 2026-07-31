@@ -3761,10 +3761,7 @@ mod tests {
                 nostr::Tag::parse(["p", &author]).unwrap(),
                 nostr::Tag::parse(["h", "00000000-0000-0000-0000-000000000001"]).unwrap(),
                 nostr::Tag::parse(["p", &offline_bot]).unwrap(),
-                nostr::Tag::custom(
-                    nostr::TagKind::Custom("mention".into()),
-                    [&offline_bot],
-                ),
+                nostr::Tag::custom(nostr::TagKind::Custom("mention".into()), [&offline_bot]),
             ]);
             assert_eq!(
                 crate::handlers::event::explicit_mention_pubkeys_from_tags(&intentional),
@@ -3777,9 +3774,7 @@ mod tests {
             let mentioned =
                 crate::handlers::event::explicit_mention_pubkeys_from_tags(&intentional);
             assert_eq!(
-                crate::handlers::event::select_offline_mentioned_bots(
-                    &mentioned, &bots, &present
-                ),
+                crate::handlers::event::select_offline_mentioned_bots(&mentioned, &bots, &present),
                 vec![offline_bot]
             );
         }
@@ -3798,7 +3793,7 @@ mod tests {
 
             // human p only → not selected (not bot)
             assert!(crate::handlers::event::select_offline_mentioned_bots(
-                &[human.clone()],
+                std::slice::from_ref(&human),
                 &bots,
                 &present
             )
@@ -3806,7 +3801,7 @@ mod tests {
 
             // online agent → no notice
             assert!(crate::handlers::event::select_offline_mentioned_bots(
-                &[online_bot.clone()],
+                std::slice::from_ref(&online_bot),
                 &bots,
                 &present
             )
@@ -3815,7 +3810,7 @@ mod tests {
             // offline agent → exactly one
             assert_eq!(
                 crate::handlers::event::select_offline_mentioned_bots(
-                    &[offline_bot.clone()],
+                    std::slice::from_ref(&offline_bot),
                     &bots,
                     &present
                 ),
