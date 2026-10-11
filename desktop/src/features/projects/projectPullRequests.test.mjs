@@ -7,6 +7,7 @@ import {
   nextProjectPullRequestStatusCreatedAt,
   projectPullRequestCommentTimelineKind,
   projectPullRequestEffectiveReviewDecision,
+  projectPullRequestMentionChannel,
   projectPullRequestReviewSummary,
 } from "./projectPullRequests.mjs";
 
@@ -318,6 +319,35 @@ test("keeps anchors on comment-backed change requests", () => {
     "changes-requested",
   );
   assert.equal(pullRequest.changeRequests.length, 1);
+});
+
+test("review mention channel prefers the pull request home stream", () => {
+  const event = pullRequestEvent();
+  event.tags.push(["h", "pr-home-channel"]);
+  const pullRequest = eventToProjectPullRequest(event, [], []);
+  assert.deepEqual(
+    projectPullRequestMentionChannel(
+      { channelId: "repo-channel" },
+      pullRequest,
+    ),
+    { channelId: "pr-home-channel", channelType: "stream" },
+  );
+});
+
+test("review mention channel falls back to the repository stream", () => {
+  const pullRequest = eventToProjectPullRequest(pullRequestEvent(), [], []);
+  assert.equal(pullRequest.channelId, null);
+  assert.deepEqual(
+    projectPullRequestMentionChannel(
+      { channelId: "repo-channel" },
+      pullRequest,
+    ),
+    { channelId: "repo-channel", channelType: "stream" },
+  );
+  assert.equal(
+    projectPullRequestMentionChannel({ channelId: null }, pullRequest),
+    null,
+  );
 });
 
 test("marks inline comments on earlier commits as outdated", () => {

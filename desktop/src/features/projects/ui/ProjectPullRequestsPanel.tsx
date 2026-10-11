@@ -21,7 +21,10 @@ import {
   type ProjectPullRequestCommentAnchor,
   useCreateProjectPullRequestCommentMutation,
 } from "@/features/projects/hooks";
-import { projectPullRequestCommentTimelineKind } from "@/features/projects/projectPullRequests.mjs";
+import {
+  projectPullRequestCommentTimelineKind,
+  projectPullRequestMentionChannel,
+} from "@/features/projects/projectPullRequests.mjs";
 import { entityDiscussionQuery } from "@/features/projects/lib/discussionChannels";
 import { selectionItemFromReview } from "@/features/projects/lib/projectSelection";
 import { pullRequestShareLink } from "@/features/projects/lib/projectShareLinks";
@@ -440,6 +443,10 @@ export function ProjectPullRequestDetail({
     () => pullRequestMembers(project, pullRequest, profiles),
     [profiles, project, pullRequest],
   );
+  const mentionChannel = projectPullRequestMentionChannel(
+    project,
+    pullRequest,
+  );
   React.useEffect(() => {
     if (forceOpenFiles) setFilesOpen(true);
   }, [forceOpenFiles]);
@@ -825,8 +832,11 @@ export function ProjectPullRequestDetail({
         data-testid="project-pull-request-comment-composer"
       >
         <ForumComposer
+          channelId={mentionChannel?.channelId}
+          channelType={mentionChannel?.channelType}
           className="border border-border/60 bg-background/45"
           disabled={commentMutation.isPending}
+          draftKey={`pull-request:${pullRequest.id}`}
           isSending={commentMutation.isPending}
           members={members}
           onSecondarySubmit={

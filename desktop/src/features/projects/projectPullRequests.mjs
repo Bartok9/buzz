@@ -81,6 +81,18 @@ export function nextProjectPullRequestReviewCreatedAt(pullRequest, now) {
   return Math.max(now, latestDecisionCreatedAt + 1);
 }
 
+/**
+ * Channel a review composer may mention into.
+ * Project homes and PR `h` tags are streams. Without this, the composer
+ * fail-closes to local managed agents and rejects a remote agent the owner
+ * can already mention in that room.
+ */
+export function projectPullRequestMentionChannel(project, pullRequest) {
+  const channelId = pullRequest?.channelId || project?.channelId || null;
+  if (!channelId) return null;
+  return { channelId, channelType: "stream" };
+}
+
 /** Trusted presentation kind for a compact review timeline row. */
 export function projectPullRequestCommentTimelineKind(comment) {
   if (comment.isTrustedReviewRequest) return "review-request";
